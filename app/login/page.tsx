@@ -1,111 +1,171 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "../lib/supabase";
 
+// ==================== INTERFACES ====================
+interface Particle {
+    x: number;
+    y: number;
+    size: number;
+    speedX: number;
+    speedY: number;
+    color: string;
+}
+
+interface Spark {
+    x: number;
+    y: number;
+    size: number;
+    speedX: number;
+    speedY: number;
+    opacity: number;
+    life: number;
+}
+
+interface Glow {
+    x: number;
+    y: number;
+    size: number;
+    intensity: number;
+    color: string;
+}
+
+// ==================== COMPONENTE PRINCIPAL ====================
 export default function LoginPage() {
     const router = useRouter();
+
+    // ==================== ESTADOS PRINCIPALES ====================
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
     const [rememberMe, setRememberMe] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const [loginError, setLoginError] = useState<string | null>(null);
+
+    // Estados para modales
     const [showForgotPassword, setShowForgotPassword] = useState(false);
     const [showTrialRequest, setShowTrialRequest] = useState(false);
+
+    // Estados para formularios modales
     const [forgotEmail, setForgotEmail] = useState("");
     const [trialEmail, setTrialEmail] = useState("");
     const [trialName, setTrialName] = useState("");
     const [trialCompany, setTrialCompany] = useState("");
     const [trialPhone, setTrialPhone] = useState("");
+
+    // Estados de carga modales
     const [forgotLoading, setForgotLoading] = useState(false);
     const [trialLoading, setTrialLoading] = useState(false);
+
+    // Estados de éxito modales
     const [forgotSuccess, setForgotSuccess] = useState(false);
     const [trialSuccess, setTrialSuccess] = useState(false);
 
-    // Estados para partículas y efectos
-    const [particles, setParticles] = useState<Array<{ x: number, y: number, size: number, speedX: number, speedY: number, color: string }>>([]);
-    const [sparks, setSparks] = useState<Array<{ x: number, y: number, size: number, speedX: number, speedY: number, opacity: number, life: number }>>([]);
-    const [glows, setGlows] = useState<Array<{ x: number, y: number, size: number, intensity: number, color: string }>>([]);
+    // ==================== EFECTOS VISUALES ====================
+    const [particles, setParticles] = useState<Particle[]>([]);
+    const [sparks, setSparks] = useState<Spark[]>([]);
+    const [glows, setGlows] = useState<Glow[]>([]);
 
-    // Generar partículas animadas
+    // Referencias para limpieza de efectos
+    const animationFrameRef = useRef<number>(0);
+    const particlesRef = useRef(particles);
+    const sparksRef = useRef(sparks);
+    const glowsRef = useRef(glows);
+
+    // Limpiar formulario al cargar
     useEffect(() => {
-        const generateEffects = () => {
-            const newParticles = [];
-            const newSparks = [];
-            const newGlows = [];
-
-            const colors = [
-                'rgba(34, 211, 238, 0.3)',
-                'rgba(56, 189, 248, 0.25)',
-                'rgba(14, 165, 233, 0.2)',
-                'rgba(2, 132, 199, 0.15)',
-                'rgba(0, 102, 255, 0.1)',
-                'rgba(255, 255, 255, 0.08)',
-                'rgba(147, 51, 234, 0.15)',
-                'rgba(236, 72, 153, 0.1)',
-            ];
-
-            const glowColors = [
-                'rgba(34, 211, 238, 0.4)',
-                'rgba(56, 189, 248, 0.35)',
-                'rgba(147, 51, 234, 0.3)',
-                'rgba(236, 72, 153, 0.25)',
-                'rgba(34, 197, 94, 0.2)',
-            ];
-
-            // Partículas normales
-            for (let i = 0; i < 50; i++) {
-                newParticles.push({
-                    x: Math.random() * 100,
-                    y: Math.random() * 100,
-                    size: Math.random() * 3 + 1,
-                    speedX: (Math.random() - 0.5) * 0.3,
-                    speedY: (Math.random() - 0.5) * 0.3,
-                    color: colors[Math.floor(Math.random() * colors.length)]
-                });
-            }
-
-            // Chispas
-            for (let i = 0; i < 30; i++) {
-                newSparks.push({
-                    x: Math.random() * 100,
-                    y: Math.random() * 100,
-                    size: Math.random() * 1.5 + 0.5,
-                    speedX: (Math.random() - 0.5) * 1.2,
-                    speedY: (Math.random() - 0.5) * 1.2,
-                    opacity: Math.random() * 0.8 + 0.2,
-                    life: Math.random() * 100 + 50
-                });
-            }
-
-            // Destellos
-            for (let i = 0; i < 15; i++) {
-                newGlows.push({
-                    x: Math.random() * 100,
-                    y: Math.random() * 100,
-                    size: Math.random() * 120 + 40,
-                    intensity: Math.random() * 0.3 + 0.1,
-                    color: glowColors[Math.floor(Math.random() * glowColors.length)]
-                });
-            }
-
-            setParticles(newParticles);
-            setSparks(newSparks);
-            setGlows(newGlows);
-        };
-
-        generateEffects();
+        setEmail("");
+        setPassword("");
+        setRememberMe(false);
+        setLoginError(null);
     }, []);
 
-    // Animar partículas y efectos
+    // Actualizar referencias cuando cambian los estados
     useEffect(() => {
-        const interval = setInterval(() => {
+        particlesRef.current = particles;
+        sparksRef.current = sparks;
+        glowsRef.current = glows;
+    }, [particles, sparks, glows]);
+
+    // ==================== GENERACIÓN DE EFECTOS (OPTIMIZADA) ====================
+    const generateEffects = useCallback(() => {
+        const colors = [
+            'rgba(34, 211, 238, 0.3)',
+            'rgba(56, 189, 248, 0.25)',
+            'rgba(14, 165, 233, 0.2)',
+            'rgba(2, 132, 199, 0.15)',
+            'rgba(0, 102, 255, 0.1)',
+            'rgba(255, 255, 255, 0.08)',
+            'rgba(147, 51, 234, 0.15)',
+            'rgba(236, 72, 153, 0.1)',
+        ];
+
+        const glowColors = [
+            'rgba(34, 211, 238, 0.4)',
+            'rgba(56, 189, 248, 0.35)',
+            'rgba(147, 51, 234, 0.3)',
+            'rgba(236, 72, 153, 0.25)',
+            'rgba(34, 197, 94, 0.2)',
+        ];
+
+        const newParticles: Particle[] = [];
+        const newSparks: Spark[] = [];
+        const newGlows: Glow[] = [];
+
+        // Generar partículas
+        for (let i = 0; i < 40; i++) {
+            newParticles.push({
+                x: Math.random() * 100,
+                y: Math.random() * 100,
+                size: Math.random() * 3 + 1,
+                speedX: (Math.random() - 0.5) * 0.3,
+                speedY: (Math.random() - 0.5) * 0.3,
+                color: colors[Math.floor(Math.random() * colors.length)]
+            });
+        }
+
+        // Generar chispas
+        for (let i = 0; i < 20; i++) {
+            newSparks.push({
+                x: Math.random() * 100,
+                y: Math.random() * 100,
+                size: Math.random() * 1.5 + 0.5,
+                speedX: (Math.random() - 0.5) * 1.2,
+                speedY: (Math.random() - 0.5) * 1.2,
+                opacity: Math.random() * 0.8 + 0.2,
+                life: Math.random() * 100 + 50
+            });
+        }
+
+        // Generar destellos
+        for (let i = 0; i < 10; i++) {
+            newGlows.push({
+                x: Math.random() * 100,
+                y: Math.random() * 100,
+                size: Math.random() * 120 + 40,
+                intensity: Math.random() * 0.3 + 0.1,
+                color: glowColors[Math.floor(Math.random() * glowColors.length)]
+            });
+        }
+
+        setParticles(newParticles);
+        setSparks(newSparks);
+        setGlows(newGlows);
+    }, []);
+
+    // ==================== ANIMACIÓN DE EFECTOS (OPTIMIZADA) ====================
+    useEffect(() => {
+        const animate = () => {
+            // Animar partículas
             setParticles(prev => prev.map(p => ({
                 ...p,
                 x: (p.x + p.speedX + 100) % 100,
                 y: (p.y + p.speedY + 100) % 100
             })));
 
+            // Animar chispas con vida
             setSparks(prev => prev.map(s => {
                 const newLife = s.life - 1;
                 if (newLife <= 0) {
@@ -128,99 +188,608 @@ export default function LoginPage() {
                 };
             }));
 
+            // Animar destellos
             setGlows(prev => prev.map(g => ({
                 ...g,
-                intensity: g.intensity + (Math.random() - 0.5) * 0.02,
-                x: g.x + (Math.random() - 0.5) * 0.1,
-                y: g.y + (Math.random() - 0.5) * 0.1
+                intensity: Math.max(0.05, Math.min(0.4, g.intensity + (Math.random() - 0.5) * 0.02)),
+                x: (g.x + (Math.random() - 0.5) * 0.1 + 100) % 100,
+                y: (g.y + (Math.random() - 0.5) * 0.1 + 100) % 100
             })));
-        }, 40);
 
-        return () => clearInterval(interval);
+            animationFrameRef.current = requestAnimationFrame(animate);
+        };
+
+        animationFrameRef.current = requestAnimationFrame(animate);
+
+        return () => {
+            if (animationFrameRef.current) {
+                cancelAnimationFrame(animationFrameRef.current);
+            }
+        };
     }, []);
 
+    // Generar efectos iniciales
+    useEffect(() => {
+        generateEffects();
+    }, [generateEffects]);
+
+    // ==================== FUNCIONES PRINCIPALES ====================
+
+    /**
+     * 🔐 HANDLE LOGIN - CON LÓGICA SEGURA MULTIEMPRESA
+     */
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
+        setLoginError(null);
+
+        if (!email.trim() || !password) {
+            showToast("Por favor, completa todos los campos", "warning");
+            return;
+        }
+
         setLoading(true);
 
-        // Simular autenticación
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        try {
+            // 1️⃣ AUTENTICAR USUARIO CON SUPABASE AUTH
+            const { error: loginError, data: loginData } = await supabase.auth.signInWithPassword({
+                email: email.trim(),
+                password: password
+            });
 
-        // Redirigir al dashboard
-        router.push('/');
-        setLoading(false);
+            if (loginError) {
+                throw new Error(loginError.message || "Credenciales incorrectas");
+            }
+
+            const user = loginData.user;
+            if (!user) {
+                throw new Error("No se pudo obtener información del usuario");
+            }
+
+            console.log("✅ Login exitoso con:", user.email);
+            console.log("🆔 User ID:", user.id);
+
+            // 2️⃣ OBTENER RELACIONES USUARIO → EMPRESA (CORRECCIÓN: sin maybeSingle)
+            const { data: relaciones, error: relError } = await supabase
+                .from('usuarios_empresas')
+                .select('empresa_id')
+                .eq('usuario_id', user.id);
+
+            if (relError) {
+                console.error("❌ Error usuarios_empresas:", relError);
+                await supabase.auth.signOut();
+                showToast("Error al cargar tus empresas. Intenta nuevamente.", "error");
+                setLoading(false); // IMPORTANTE: resetear loading
+                return;
+            }
+
+            // 3️⃣ VERIFICAR SI TIENE RELACIONES (REGLA DE ORO)
+            if (!relaciones || relaciones.length === 0) {
+                console.warn("⚠️ Usuario sin empresas asignadas");
+                await supabase.auth.signOut();
+                showToast("No tienes empresas asignadas. Contacta al administrador.", "warning");
+                setLoading(false); // IMPORTANTE: resetear loading
+                return;
+            }
+
+            // 4️⃣ OBTENER EMPRESAS ASOCIADAS
+            const empresaIds = relaciones.map(r => r.empresa_id);
+
+            const { data: empresas, error: empError } = await supabase
+                .from('empresas')
+                .select('*')
+                .in('id', empresaIds);
+
+            if (empError || !empresas) {
+                console.error("❌ Error empresas:", empError);
+                await supabase.auth.signOut();
+                showToast("Error al cargar información de empresas.", "error");
+                setLoading(false); // IMPORTANTE: resetear loading
+                return;
+            }
+
+            // 5️⃣ FILTRAR SOLO EMPRESAS ACTIVAS
+            const empresasActivas = empresas.filter(e => e.activo === true);
+
+            // 6️⃣ VERIFICAR SI TIENE EMPRESAS ACTIVAS
+            if (empresasActivas.length === 0) {
+                console.warn("⚠️ Usuario sin empresas activas");
+                await supabase.auth.signOut();
+                showToast("No tienes empresas activas asignadas.", "warning");
+                setLoading(false); // IMPORTANTE: resetear loading
+                return;
+            }
+
+            // 7️⃣ LIMPIAR SESIÓN ANTIGUA COMPLETAMENTE
+            sessionStorage.clear();
+            localStorage.removeItem('user_data');
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('empresa_id');
+            localStorage.removeItem('empresa_activa');
+            localStorage.removeItem('empresas_disponibles');
+
+            // 8️⃣ OBTENER INFORMACIÓN ADICIONAL DEL USUARIO (opcional)
+            let usuarioInfo = null;
+            try {
+                const { data: usuarioData } = await supabase
+                    .from('usuarios')
+                    .select('*')
+                    .eq('id', user.id)
+                    .maybeSingle();
+
+                if (usuarioData) {
+                    usuarioInfo = usuarioData;
+                }
+            } catch (dbError) {
+                console.log("ℹ️ Información adicional de usuario no crítica:", dbError);
+            }
+
+            // 9️⃣ CREAR DATOS DE USUARIO
+            const userData = {
+                id: user.id,
+                email: user.email || '',
+                nombre: usuarioInfo?.nombre || user.email?.split('@')[0] || 'Usuario',
+                role: usuarioInfo?.rol || 'ADMIN',
+                activo: usuarioInfo?.activo !== false
+            };
+
+            // 🔟 GUARDAR EN SESSIONSTORAGE
+            sessionStorage.setItem('user_data', JSON.stringify(userData));
+            sessionStorage.setItem('user_id', user.id);
+            sessionStorage.setItem('user_email', user.email || '');
+            sessionStorage.setItem('user_role', userData.role);
+
+            // 1️⃣1️⃣ MANEJAR FLUJO SEGÚN NÚMERO DE EMPRESAS
+            if (empresasActivas.length === 1) {
+                // Una empresa activa - auto-seleccionar
+                const empresa = empresasActivas[0];
+                sessionStorage.setItem('empresa_activa', JSON.stringify(empresa));
+                sessionStorage.setItem('empresa_id', empresa.id);
+                sessionStorage.setItem('empresa_nombre', empresa.nombre);
+
+                console.log("🏢 Empresa auto-seleccionada:", empresa.nombre);
+                showToast(`¡Bienvenido ${userData.nombre}!`, "success");
+
+                setTimeout(() => {
+                    router.push('/dashboard');
+                }, 1000);
+
+            } else {
+                // Múltiples empresas activas - ir a selector
+                sessionStorage.setItem('empresas_disponibles', JSON.stringify(empresasActivas));
+
+                console.log(`🏢 ${empresasActivas.length} empresas disponibles para selección`);
+                showToast(`¡Bienvenido ${userData.nombre}!`, "success");
+
+                setTimeout(() => {
+                    router.push('/seleccion-empresa');
+                }, 1000);
+            }
+
+            // Limpiar formulario
+            setEmail("");
+            setPassword("");
+
+        } catch (error: any) {
+            console.error("❌ Error en login:", error);
+
+            // Limpiar contraseña en caso de error
+            setPassword("");
+
+            const errorMessage = error?.message || "Error de autenticación";
+
+            // Manejo de errores específicos
+            if (errorMessage.includes("Invalid login credentials")) {
+                setLoginError("❌ Correo o contraseña incorrectos");
+                showToast("❌ Correo o contraseña incorrectos", "error");
+            } else if (errorMessage.includes("Email not confirmed")) {
+                setLoginError("📧 Por favor, confirma tu correo electrónico");
+                showToast("📧 Por favor, confirma tu correo electrónico", "warning");
+            } else if (errorMessage.includes("Usuario desactivado")) {
+                setLoginError("🚫 Tu cuenta está desactivada");
+                showToast("🚫 Tu cuenta está desactivada", "error");
+            } else {
+                setLoginError(`⚠️ ${errorMessage}`);
+                showToast(`⚠️ ${errorMessage}`, "error");
+            }
+
+            // IMPORTANTE: Resetear loading incluso en error
+            setLoading(false);
+
+        } finally {
+            // Asegurar que loading se resetee en cualquier caso
+            setTimeout(() => {
+                setLoading(false);
+            }, 100);
+        }
     };
 
+    /**
+     * 📧 HANDLE FORGOT PASSWORD
+     */
     const handleForgotPassword = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!forgotEmail) {
-            alert("Por favor ingresa tu correo electrónico");
+
+        if (!forgotEmail.trim()) {
+            showToast("Por favor, ingresa tu correo electrónico", "warning");
             return;
         }
 
         setForgotLoading(true);
 
-        // Simular envío de contraseña provisional
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
+                redirectTo: `${window.location.origin}/reset-password`,
+            });
 
-        setForgotSuccess(true);
-        setForgotLoading(false);
+            if (error) throw new Error(error.message);
 
-        setTimeout(() => {
-            setShowForgotPassword(false);
-            setForgotSuccess(false);
-            setForgotEmail("");
-        }, 3000);
+            setForgotSuccess(true);
+            showToast("Correo de recuperación enviado", "success");
+
+            setTimeout(() => {
+                setShowForgotPassword(false);
+                setForgotSuccess(false);
+                setForgotEmail("");
+            }, 3000);
+
+        } catch (error: any) {
+            console.error("Error al recuperar contraseña:", error);
+            showToast(error?.message || "Error al enviar correo de recuperación", "error");
+        } finally {
+            setForgotLoading(false);
+        }
     };
 
+    /**
+     * 🆓 HANDLE TRIAL REQUEST
+     */
     const handleTrialRequest = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!trialEmail || !trialName || !trialCompany) {
-            alert("Por favor completa todos los campos requeridos");
+
+        if (!trialEmail.trim() || !trialName.trim() || !trialCompany.trim()) {
+            showToast("Por favor, completa todos los campos requeridos", "warning");
             return;
         }
 
         setTrialLoading(true);
 
-        // Simular envío de solicitud
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+            const { error } = await supabase
+                .from('trial_requests')
+                .insert({
+                    email: trialEmail.trim(),
+                    name: trialName.trim(),
+                    company: trialCompany.trim(),
+                    phone: trialPhone.trim(),
+                    status: 'pending',
+                    created_at: new Date().toISOString()
+                });
 
-        setTrialSuccess(true);
-        setTrialLoading(false);
+            if (error) throw new Error(error.message);
 
-        setTimeout(() => {
-            setShowTrialRequest(false);
-            setTrialSuccess(false);
-            setTrialEmail("");
-            setTrialName("");
-            setTrialCompany("");
-            setTrialPhone("");
-        }, 3000);
+            setTrialSuccess(true);
+            showToast("¡Solicitud enviada exitosamente!", "success");
+
+            setTimeout(() => {
+                setShowTrialRequest(false);
+                setTrialSuccess(false);
+                setTrialEmail("");
+                setTrialName("");
+                setTrialCompany("");
+                setTrialPhone("");
+            }, 3000);
+
+        } catch (error: any) {
+            console.error("Error al enviar solicitud:", error);
+            showToast(error?.message || "Error al enviar solicitud", "error");
+        } finally {
+            setTrialLoading(false);
+        }
     };
 
+    /**
+     * 🔔 HELPER: Mostrar notificaciones
+     */
+    const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'info') => {
+        // Temporalmente usamos alert
+        alert(message);
+    };
+
+    // ==================== COMPONENTES MODALES ====================
+
+    /**
+     * 🔐 MODAL: Olvidé mi contraseña
+     */
+    const ForgotPasswordModal = () => (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <div className="relative w-full max-w-md rounded-xl bg-slate-900 border border-emerald-500/30 overflow-hidden animate-fadeIn">
+                <div className="relative z-10 p-5">
+                    <div className="flex justify-between items-center mb-5">
+                        <div>
+                            <h3 className="text-lg font-bold text-white">
+                                {forgotSuccess ? "✅ Correo Enviado" : "Recuperar Contraseña"}
+                            </h3>
+                            <p className="text-slate-400 text-xs mt-1">
+                                {forgotSuccess ? "Revisa tu correo electrónico" : "Te enviaremos un enlace para restablecer tu contraseña"}
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setShowForgotPassword(false);
+                                setForgotSuccess(false);
+                                setForgotEmail("");
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            aria-label="Cerrar modal"
+                        >
+                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    {forgotSuccess ? (
+                        <div className="text-center py-4">
+                            <div className="h-12 w-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
+                                <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <h4 className="text-base font-bold text-white mb-2">¡Correo enviado!</h4>
+                            <p className="text-slate-300 text-sm mb-3">
+                                Hemos enviado un enlace de recuperación a:<br />
+                                <span className="text-emerald-400 font-medium">{forgotEmail}</span>
+                            </p>
+                            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                <p className="text-xs text-emerald-400">
+                                    ⚠️ <strong>Importante:</strong> Revisa tu carpeta de spam si no encuentras el correo.
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                                <div className="flex items-start gap-2">
+                                    <svg className="w-4 h-4 text-emerald-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <div>
+                                        <p className="text-xs text-emerald-300">
+                                            Ingresa el correo electrónico asociado a tu cuenta de FleetVision.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleForgotPassword} className="space-y-4">
+                                <div className="relative group">
+                                    <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-emerald-500/30 transition-all duration-300 backdrop-blur-sm">
+                                        <label className="block text-xs font-medium text-emerald-400 mb-1.5 flex items-center gap-1.5">
+                                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                            </svg>
+                                            Correo Electrónico *
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={forgotEmail}
+                                            onChange={(e) => setForgotEmail(e.target.value)}
+                                            placeholder="tu@empresa.cl"
+                                            required
+                                            className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                            aria-required="true"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        type="submit"
+                                        disabled={forgotLoading}
+                                        className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold hover:shadow-lg hover:shadow-emerald-500/20 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
+                                    >
+                                        {forgotLoading ? (
+                                            <span className="flex items-center justify-center gap-1.5">
+                                                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                                </svg>
+                                                Enviando...
+                                            </span>
+                                        ) : 'Enviar Enlace'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowForgotPassword(false);
+                                            setForgotEmail("");
+                                        }}
+                                        className="flex-1 px-4 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-white/5 hover:text-white transition-colors text-sm"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </form>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
+    /**
+     * 🆓 MODAL: Solicitar prueba gratuita
+     */
+    const TrialRequestModal = () => (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
+            <div className="relative w-full max-w-lg rounded-xl bg-slate-900 border border-sky-500/30 overflow-hidden my-auto animate-fadeIn">
+                <div className="relative z-10 p-6">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                            <h3 className="text-lg font-bold text-white">
+                                {trialSuccess ? "✅ Solicitud Enviada" : "Solicitar Prueba Gratuita"}
+                            </h3>
+                            <p className="text-slate-400 text-xs mt-1">
+                                {trialSuccess ? "Te contactaremos a la brevedad" : "Completa el formulario para acceder a la prueba"}
+                            </p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setShowTrialRequest(false);
+                                setTrialSuccess(false);
+                                setTrialEmail("");
+                                setTrialName("");
+                                setTrialCompany("");
+                                setTrialPhone("");
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            aria-label="Cerrar modal"
+                        >
+                            <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    {trialSuccess ? (
+                        <div className="text-center py-4">
+                            <div className="h-12 w-12 rounded-full bg-sky-500/20 flex items-center justify-center mx-auto mb-3">
+                                <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <h4 className="text-base font-bold text-white mb-2">¡Solicitud recibida!</h4>
+                            <p className="text-slate-300 text-sm mb-4">
+                                Te contactaremos en <span className="text-sky-400 font-medium">menos de 24 horas</span>.
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="mb-5 p-3 rounded-lg bg-sky-500/10 border border-sky-500/20">
+                                <div className="flex items-start gap-2">
+                                    <svg className="w-4 h-4 text-sky-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <div>
+                                        <p className="text-xs text-sky-300 mb-1.5">
+                                            <strong>Prueba gratuita de FleetVision CMMS:</strong> Acceso completo por 14 días.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <form onSubmit={handleTrialRequest} className="space-y-4">
+                                <div className="grid md:grid-cols-2 gap-3">
+                                    <div className="relative group">
+                                        <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
+                                            <label className="block text-xs font-medium text-sky-400 mb-1.5">
+                                                Nombre Completo *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={trialName}
+                                                onChange={(e) => setTrialName(e.target.value)}
+                                                placeholder="Juan Pérez"
+                                                required
+                                                className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                                aria-required="true"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="relative group">
+                                        <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
+                                            <label className="block text-xs font-medium text-sky-400 mb-1.5">
+                                                Correo Electrónico *
+                                            </label>
+                                            <input
+                                                type="email"
+                                                value={trialEmail}
+                                                onChange={(e) => setTrialEmail(e.target.value)}
+                                                placeholder="tu@empresa.cl"
+                                                required
+                                                className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                                aria-required="true"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="relative group">
+                                        <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
+                                            <label className="block text-xs font-medium text-sky-400 mb-1.5">
+                                                Empresa *
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={trialCompany}
+                                                onChange={(e) => setTrialCompany(e.target.value)}
+                                                placeholder="Nombre de tu empresa"
+                                                required
+                                                className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                                aria-required="true"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="relative group">
+                                        <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
+                                            <label className="block text-xs font-medium text-sky-400 mb-1.5">
+                                                Teléfono (Opcional)
+                                            </label>
+                                            <input
+                                                type="tel"
+                                                value={trialPhone}
+                                                onChange={(e) => setTrialPhone(e.target.value)}
+                                                placeholder="+56 9 1234 5678"
+                                                className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        type="submit"
+                                        disabled={trialLoading}
+                                        className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-sky-500 to-cyan-500 text-white font-bold hover:shadow-lg hover:shadow-sky-500/20 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
+                                    >
+                                        {trialLoading ? (
+                                            <span className="flex items-center justify-center gap-1.5">
+                                                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                                </svg>
+                                                Enviando...
+                                            </span>
+                                        ) : 'Solicitar Prueba Gratuita'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowTrialRequest(false);
+                                            setTrialEmail("");
+                                            setTrialName("");
+                                            setTrialCompany("");
+                                            setTrialPhone("");
+                                        }}
+                                        className="flex-1 px-4 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-white/5 hover:text-white transition-colors text-sm"
+                                    >
+                                        Cancelar
+                                    </button>
+                                </div>
+                            </form>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
+    // ==================== RENDER PRINCIPAL ====================
     return (
         <main className="relative min-h-screen w-full bg-slate-950 font-sans overflow-hidden">
             {/* BACKGROUND EFFECTS */}
             <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-                {/* Grandes destellos de fondo */}
-                {glows.map((glow, index) => (
-                    <div
-                        key={`glow-${index}`}
-                        className="absolute rounded-full animate-pulse"
-                        style={{
-                            left: `${glow.x}%`,
-                            top: `${glow.y}%`,
-                            width: `${glow.size}px`,
-                            height: `${glow.size}px`,
-                            background: `radial-gradient(circle, ${glow.color} 0%, transparent 70%)`,
-                            opacity: glow.intensity,
-                            filter: `blur(${glow.size * 0.3}px)`,
-                            animation: `pulse ${Math.random() * 4 + 2}s ease-in-out infinite`,
-                            animationDelay: `${Math.random() * 2}s`,
-                        }}
-                    />
-                ))}
-
                 {/* Gradientes de fondo */}
                 <div className="absolute -top-[20%] -left-[10%] h-[800px] w-[800px] rounded-full bg-gradient-to-r from-cyan-600/30 via-blue-500/20 to-transparent opacity-70" style={{ filter: 'blur(150px)' }} />
                 <div className="absolute top-[30%] right-[0%] h-[600px] w-[600px] rounded-full bg-gradient-to-b from-cyan-500/25 via-blue-400/15 to-transparent opacity-60" style={{ filter: 'blur(120px)' }} />
@@ -267,283 +836,9 @@ export default function LoginPage() {
                 ))}
             </div>
 
-            {/* MODAL OLVIDÉ MI CONTRASEÑA */}
-            {showForgotPassword && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-                    <div className="relative w-full max-w-md rounded-xl bg-slate-900 border border-emerald-500/30 overflow-hidden">
-                        <div className="relative z-10 p-5">
-                            <div className="flex justify-between items-center mb-5">
-                                <div>
-                                    <h3 className="text-lg font-bold text-white">
-                                        {forgotSuccess ? "✅ Contraseña Enviada" : "Recuperar Contraseña"}
-                                    </h3>
-                                    <p className="text-slate-400 text-xs mt-1">
-                                        {forgotSuccess ? "Revisa tu correo electrónico" : "Te enviaremos una contraseña provisional"}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        setShowForgotPassword(false);
-                                        setForgotSuccess(false);
-                                        setForgotEmail("");
-                                    }}
-                                    className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                                >
-                                    <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            {forgotSuccess ? (
-                                <div className="text-center py-4">
-                                    <div className="h-12 w-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
-                                        <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    </div>
-                                    <h4 className="text-base font-bold text-white mb-2">¡Contraseña enviada!</h4>
-                                    <p className="text-slate-300 text-sm mb-3">
-                                        Hemos enviado una contraseña provisional a:<br />
-                                        <span className="text-emerald-400 font-medium">{forgotEmail}</span>
-                                    </p>
-                                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                                        <p className="text-xs text-emerald-400">
-                                            ⚠️ <strong>Importante:</strong> Revisa tu carpeta de spam si no encuentras el correo.
-                                        </p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                                        <div className="flex items-start gap-2">
-                                            <svg className="w-4 h-4 text-emerald-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            <div>
-                                                <p className="text-xs text-emerald-300">
-                                                    Ingresa el correo electrónico asociado a tu cuenta de FleetVision.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <form onSubmit={handleForgotPassword} className="space-y-4">
-                                        <div className="relative group">
-                                            <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-emerald-500/30 transition-all duration-300 backdrop-blur-sm">
-                                                <label className="block text-xs font-medium text-emerald-400 mb-1.5 flex items-center gap-1.5">
-                                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                                    </svg>
-                                                    Correo Electrónico *
-                                                </label>
-                                                <input
-                                                    type="email"
-                                                    value={forgotEmail}
-                                                    onChange={(e) => setForgotEmail(e.target.value)}
-                                                    placeholder="tu@empresa.cl"
-                                                    required
-                                                    className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="flex gap-3 pt-2">
-                                            <button
-                                                type="submit"
-                                                disabled={forgotLoading}
-                                                className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold hover:shadow-lg hover:shadow-emerald-500/20 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
-                                            >
-                                                {forgotLoading ? (
-                                                    <span className="flex items-center justify-center gap-1.5">
-                                                        <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                                        </svg>
-                                                        Enviando...
-                                                    </span>
-                                                ) : 'Enviar Contraseña'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setShowForgotPassword(false);
-                                                    setForgotEmail("");
-                                                }}
-                                                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-white/5 hover:text-white transition-colors text-sm"
-                                            >
-                                                Cancelar
-                                            </button>
-                                        </div>
-                                    </form>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* MODAL SOLICITAR PRUEBA GRATUITA */}
-            {showTrialRequest && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-                    <div className="relative w-full max-w-lg rounded-xl bg-slate-900 border border-sky-500/30 overflow-hidden my-auto">
-                        <div className="relative z-10 p-6">
-                            <div className="flex justify-between items-center mb-6">
-                                <div>
-                                    <h3 className="text-lg font-bold text-white">
-                                        {trialSuccess ? "✅ Solicitud Enviada" : "Solicitar Prueba Gratuita"}
-                                    </h3>
-                                    <p className="text-slate-400 text-xs mt-1">
-                                        {trialSuccess ? "Te contactaremos a la brevedad" : "Completa el formulario para acceder a la prueba"}
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        setShowTrialRequest(false);
-                                        setTrialSuccess(false);
-                                        setTrialEmail("");
-                                        setTrialName("");
-                                        setTrialCompany("");
-                                        setTrialPhone("");
-                                    }}
-                                    className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                                >
-                                    <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-
-                            {trialSuccess ? (
-                                <div className="text-center py-4">
-                                    <div className="h-12 w-12 rounded-full bg-sky-500/20 flex items-center justify-center mx-auto mb-3">
-                                        <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    </div>
-                                    <h4 className="text-base font-bold text-white mb-2">¡Solicitud recibida!</h4>
-                                    <p className="text-slate-300 text-sm mb-4">
-                                        Te contactaremos en <span className="text-sky-400 font-medium">menos de 24 horas</span>.
-                                    </p>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="mb-5 p-3 rounded-lg bg-sky-500/10 border border-sky-500/20">
-                                        <div className="flex items-start gap-2">
-                                            <svg className="w-4 h-4 text-sky-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            <div>
-                                                <p className="text-xs text-sky-300 mb-1.5">
-                                                    <strong>Prueba gratuita de FleetVision CMMS:</strong> Acceso completo por 14 días.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <form onSubmit={handleTrialRequest} className="space-y-4">
-                                        <div className="grid md:grid-cols-2 gap-3">
-                                            <div className="relative group">
-                                                <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
-                                                    <label className="block text-xs font-medium text-sky-400 mb-1.5">
-                                                        Nombre Completo *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={trialName}
-                                                        onChange={(e) => setTrialName(e.target.value)}
-                                                        placeholder="Juan Pérez"
-                                                        required
-                                                        className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="relative group">
-                                                <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
-                                                    <label className="block text-xs font-medium text-sky-400 mb-1.5">
-                                                        Correo Electrónico *
-                                                    </label>
-                                                    <input
-                                                        type="email"
-                                                        value={trialEmail}
-                                                        onChange={(e) => setTrialEmail(e.target.value)}
-                                                        placeholder="tu@empresa.cl"
-                                                        required
-                                                        className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="relative group">
-                                                <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
-                                                    <label className="block text-xs font-medium text-sky-400 mb-1.5">
-                                                        Empresa *
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={trialCompany}
-                                                        onChange={(e) => setTrialCompany(e.target.value)}
-                                                        placeholder="Nombre de tu empresa"
-                                                        required
-                                                        className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="relative group">
-                                                <div className="relative rounded-lg bg-gradient-to-br from-white/5 to-white/2 border border-white/10 p-3 hover:border-sky-500/30 transition-all duration-300 backdrop-blur-sm">
-                                                    <label className="block text-xs font-medium text-sky-400 mb-1.5">
-                                                        Teléfono (Opcional)
-                                                    </label>
-                                                    <input
-                                                        type="tel"
-                                                        value={trialPhone}
-                                                        onChange={(e) => setTrialPhone(e.target.value)}
-                                                        placeholder="+56 9 1234 5678"
-                                                        className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex gap-3 pt-2">
-                                            <button
-                                                type="submit"
-                                                disabled={trialLoading}
-                                                className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-sky-500 to-cyan-500 text-white font-bold hover:shadow-lg hover:shadow-sky-500/20 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed text-sm"
-                                            >
-                                                {trialLoading ? (
-                                                    <span className="flex items-center justify-center gap-1.5">
-                                                        <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                                        </svg>
-                                                        Enviando...
-                                                    </span>
-                                                ) : 'Solicitar Prueba Gratuita'}
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setShowTrialRequest(false);
-                                                    setTrialEmail("");
-                                                    setTrialName("");
-                                                    setTrialCompany("");
-                                                    setTrialPhone("");
-                                                }}
-                                                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-700 text-slate-400 hover:bg-white/5 hover:text-white transition-colors text-sm"
-                                            >
-                                                Cancelar
-                                            </button>
-                                        </div>
-                                    </form>
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* RENDER MODALES */}
+            {showForgotPassword && <ForgotPasswordModal />}
+            {showTrialRequest && <TrialRequestModal />}
 
             {/* CONTENIDO PRINCIPAL DEL LOGIN */}
             <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
@@ -603,7 +898,7 @@ export default function LoginPage() {
                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/25 text-cyan-400 text-xs font-bold">
                                                 🇨🇱 CHILE
                                             </span>
-                                            <span className="text-xs text-slate-400">Gestión Inteligente de Flotas</span>
+                                            <span className="text-xs text-slate-400">Sistema Multiempresa CMMS</span>
                                         </div>
                                     </div>
 
@@ -611,9 +906,21 @@ export default function LoginPage() {
                                         Iniciar Sesión
                                     </h1>
                                     <p className="text-slate-400 text-xs">
-                                        Accede a tu panel de control CMMS
+                                        Accede a tu panel de control
                                     </p>
                                 </header>
+
+                                {/* Mensaje de error */}
+                                {loginError && (
+                                    <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                                        <div className="flex items-center gap-2">
+                                            <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            <p className="text-sm text-red-300">{loginError}</p>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Formulario */}
                                 <form onSubmit={handleLogin} className="space-y-5">
@@ -632,7 +939,10 @@ export default function LoginPage() {
                                                 onChange={(e) => setEmail(e.target.value)}
                                                 placeholder="usuario@empresa.cl"
                                                 required
-                                                className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                                disabled={loading}
+                                                className="w-full bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                                aria-required="true"
+                                                autoComplete="off"
                                             />
                                         </div>
                                     </div>
@@ -650,7 +960,9 @@ export default function LoginPage() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowPassword(!showPassword)}
-                                                    className="text-xs text-slate-500 hover:text-cyan-400 transition-colors"
+                                                    disabled={loading}
+                                                    className="text-xs text-slate-500 hover:text-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                                                 >
                                                     {showPassword ? 'Ocultar' : 'Mostrar'}
                                                 </button>
@@ -662,12 +974,17 @@ export default function LoginPage() {
                                                     onChange={(e) => setPassword(e.target.value)}
                                                     placeholder="••••••••"
                                                     required
-                                                    className="flex-1 bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm"
+                                                    disabled={loading}
+                                                    className="flex-1 bg-transparent border-none text-white placeholder-slate-500 focus:outline-none focus:ring-0 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    aria-required="true"
+                                                    autoComplete="off"
                                                 />
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowPassword(!showPassword)}
-                                                    className="text-slate-500 hover:text-cyan-400 p-0.5"
+                                                    disabled={loading}
+                                                    className="text-slate-500 hover:text-cyan-400 p-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                                                 >
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         {showPassword ? (
@@ -684,14 +1001,16 @@ export default function LoginPage() {
                                     {/* Opciones adicionales */}
                                     <div className="flex items-center justify-between px-1.5">
                                         <label className="flex items-center gap-2 cursor-pointer group">
-                                            <div className="relative">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={rememberMe}
-                                                    onChange={(e) => setRememberMe(e.target.checked)}
-                                                    className="sr-only"
-                                                />
-                                                <div className={`h-3.5 w-3.5 rounded border flex items-center justify-center transition-all duration-200 ${rememberMe ? 'bg-cyan-500 border-cyan-500' : 'border-slate-600 group-hover:border-cyan-400'}`}>
+                                            <input
+                                                type="checkbox"
+                                                checked={rememberMe}
+                                                onChange={(e) => setRememberMe(e.target.checked)}
+                                                disabled={loading}
+                                                className="sr-only"
+                                                id="remember-me"
+                                            />
+                                            <div className="relative flex items-center justify-center">
+                                                <div className={`h-3.5 w-3.5 rounded border flex items-center justify-center transition-all duration-200 ${rememberMe ? 'bg-cyan-500 border-cyan-500' : 'border-slate-600 group-hover:border-cyan-400'} ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                     {rememberMe && (
                                                         <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -699,13 +1018,16 @@ export default function LoginPage() {
                                                     )}
                                                 </div>
                                             </div>
-                                            <span className="text-xs text-slate-400 group-hover:text-slate-300 transition-colors">Recordar sesión</span>
+                                            <span className={`text-xs text-slate-400 group-hover:text-slate-300 transition-colors cursor-pointer ${loading ? 'opacity-50' : ''}`}>
+                                                Recordar sesión
+                                            </span>
                                         </label>
 
                                         <button
                                             type="button"
                                             onClick={() => setShowForgotPassword(true)}
-                                            className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors hover:underline"
+                                            disabled={loading}
+                                            className="text-xs text-cyan-400 hover:text-cyan-300 transition-colors hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             ¿Olvidaste tu contraseña?
                                         </button>
@@ -724,12 +1046,12 @@ export default function LoginPage() {
                                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                                                     </svg>
-                                                    Verificando...
+                                                    {/* Solo el ícono de carga, sin texto */}
                                                 </>
                                             ) : (
                                                 <>
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3 3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
                                                     </svg>
                                                     Acceder al Dashboard
                                                 </>
@@ -748,7 +1070,8 @@ export default function LoginPage() {
                                     <button
                                         type="button"
                                         onClick={() => setShowTrialRequest(true)}
-                                        className="group relative w-full px-4 py-2.5 rounded-lg border border-sky-500/30 bg-white/5 text-white font-medium hover:bg-white/10 hover:border-sky-500/50 transition-all duration-300 hover:scale-[1.02] text-sm"
+                                        disabled={loading}
+                                        className="group relative w-full px-4 py-2.5 rounded-lg border border-sky-500/30 bg-white/5 text-white font-medium hover:bg-white/10 hover:border-sky-500/50 transition-all duration-300 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                                     >
                                         <span className="relative z-10 flex items-center justify-center gap-2">
                                             <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -763,7 +1086,8 @@ export default function LoginPage() {
                                         <button
                                             type="button"
                                             onClick={() => router.push('/')}
-                                            className="text-xs text-slate-500 hover:text-cyan-400 transition-colors"
+                                            disabled={loading}
+                                            className="text-xs text-slate-500 hover:text-cyan-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
                                             ← Volver al inicio
                                         </button>
@@ -777,13 +1101,14 @@ export default function LoginPage() {
                                             ¿No tienes una cuenta?{" "}
                                             <button
                                                 onClick={() => setShowTrialRequest(true)}
-                                                className="text-cyan-400 hover:text-cyan-300 hover:underline"
+                                                disabled={loading}
+                                                className="text-cyan-400 hover:text-cyan-300 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
                                                 Solicita una prueba gratuita
                                             </button>
                                         </p>
                                         <p className="text-xs text-slate-500">
-                                            © {new Date().getFullYear()} FleetVision Chile • CMMS Avanzado
+                                            © {new Date().getFullYear()} FleetVision Chile • Sistema Multiempresa CMMS
                                         </p>
                                     </div>
                                 </footer>
@@ -805,6 +1130,11 @@ export default function LoginPage() {
           50% { transform: translateY(-10px) rotate(5deg); }
         }
         
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        
         input:-webkit-autofill,
         input:-webkit-autofill:hover,
         input:-webkit-autofill:focus {
@@ -817,7 +1147,31 @@ export default function LoginPage() {
           background: rgba(34, 211, 238, 0.3);
           color: white;
         }
+        
+        /* Scrollbar personalizado */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+          background: rgba(30, 41, 59, 0.3);
+          border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+          background: linear-gradient(to bottom, rgba(34, 211, 238, 0.4), rgba(56, 189, 248, 0.4));
+          border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(to bottom, rgba(34, 211, 238, 0.6), rgba(56, 189, 248, 0.6));
+        }
       `}</style>
         </main>
-    );
+    );// LIMPIEZA TOTAL DE SESIÓN
+    sessionStorage.clear();
+    localStorage.removeItem('empresa_activa');
+    localStorage.removeItem('empresas_disponibles');
+
 }
