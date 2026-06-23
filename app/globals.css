@@ -1,15 +1,11 @@
+/* =============================================================
+   🟣 CONFIGURACIÓN BASE – Tailwind y variables globales
+   ============================================================= */
 @import "tailwindcss";
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,8 +15,356 @@
   }
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* =============================================================
+   🟢 VARIABLES EDITABLES (ajusta aquí)
+   ============================================================= */
+:root {
+  --particula-opacidad: 0.55;
+  --duracion-flotar: 8s;
+  --duracion-brillo: 2.5s;
+  --color-cyan: rgba(0, 255, 255, 0.5);
+  --color-cyan-sombra: rgba(0, 255, 255, 0.25);
+  --color-azul: rgba(0, 50, 120, 0.6);
+  --color-azul-sombra: rgba(0, 50, 120, 0.3);
+}
+
+/* =============================================================
+   🟡 EFECTO DE BRILLO EN EL LOGO (se activa con efectos)
+   ============================================================= */
+@keyframes glow-cyan {
+  0% {
+    box-shadow: 0 0 3px rgba(0, 255, 255, 0.08), 0 0 8px rgba(0, 200, 255, 0.03);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.3), 0 0 40px rgba(0, 200, 255, 0.1);
+  }
+
+  100% {
+    box-shadow: 0 0 3px rgba(0, 255, 255, 0.08), 0 0 8px rgba(0, 200, 255, 0.03);
+  }
+}
+
+@keyframes glow-azul {
+  0% {
+    box-shadow: 0 0 3px rgba(0, 100, 255, 0.12), 0 0 8px rgba(0, 80, 255, 0.05);
+  }
+
+  50% {
+    box-shadow: 0 0 20px rgba(0, 100, 255, 0.4), 0 0 40px rgba(0, 80, 255, 0.15);
+  }
+
+  100% {
+    box-shadow: 0 0 3px rgba(0, 100, 255, 0.12), 0 0 8px rgba(0, 80, 255, 0.05);
+  }
+}
+
+.glow-effect {
+  animation: glow-cyan var(--duracion-brillo) ease-in-out infinite;
+}
+
+.modo-claro .glow-effect {
+  animation-name: glow-azul;
+}
+
+/* =============================================================
+   🟠 BRILLO DE FONDO (neblina) – DETRÁS DEL CONTENIDO
+   ============================================================= */
+.fondo-brillo {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 70%;
+  height: 70%;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+
+.modo-oscuro .fondo-brillo.efectos-activos {
+  background: radial-gradient(circle, rgba(0, 255, 255, 0.18) 0%, rgba(0, 200, 255, 0.06) 50%, transparent 70%);
+  opacity: 0.7;
+}
+
+.modo-claro .fondo-brillo.efectos-activos {
+  background: radial-gradient(circle, rgba(0, 100, 255, 0.15) 0%, rgba(0, 80, 255, 0.05) 50%, transparent 70%);
+  opacity: 0.6;
+}
+
+/* =============================================================
+   🔴 BORDE NEÓN EN LA BARRA LATERAL (OPCIONAL, SI QUIERES MANTENERLO)
+   ============================================================= */
+.barra-lateral {
+  transition: border-color 0.8s ease, box-shadow 0.8s ease;
+}
+
+.modo-oscuro .barra-lateral.efectos-activos {
+  border-right-color: rgba(0, 255, 255, 0.2);
+  box-shadow: inset 0 0 30px rgba(0, 255, 255, 0.04), 2px 0 30px rgba(0, 255, 255, 0.04);
+}
+
+.modo-claro .barra-lateral.efectos-activos {
+  border-right-color: rgba(0, 100, 255, 0.2);
+  box-shadow: inset 0 0 30px rgba(0, 100, 255, 0.06), 2px 0 30px rgba(0, 100, 255, 0.06);
+}
+
+.barra-lateral.efectos-off {
+  border-right-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+}
+
+/* =============================================================
+   🟣 PARTÍCULAS – SOLO EN EL FONDO DEL CONTENIDO PRINCIPAL
+   ============================================================= */
+.particulas-container-fondo {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.particula {
+  position: absolute;
+  border-radius: 50%;
+  animation: flotar var(--duracion-flotar) ease-in-out infinite alternate;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+
+.efectos-activos .particula {
+  opacity: var(--particula-opacidad);
+}
+
+.particula {
+  background: var(--color-cyan);
+  box-shadow: 0 0 10px var(--color-cyan-sombra);
+}
+
+.modo-claro .particula {
+  background: var(--color-azul);
+  box-shadow: 0 0 10px var(--color-azul-sombra);
+}
+
+@keyframes flotar {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  20% {
+    transform: translate(6px, -10px) scale(1.15);
+  }
+
+  40% {
+    transform: translate(-4px, 14px) scale(0.85);
+  }
+
+  60% {
+    transform: translate(10px, 8px) scale(1.05);
+  }
+
+  80% {
+    transform: translate(-8px, -6px) scale(0.95);
+  }
+
+  100% {
+    transform: translate(4px, -4px) scale(1.02);
+  }
+}
+
+.particula-xs {
+  width: 2px;
+  height: 2px;
+}
+
+.particula-sm {
+  width: 4px;
+  height: 4px;
+}
+
+.particula-md {
+  width: 6px;
+  height: 6px;
+}
+
+.particula-lg {
+  width: 9px;
+  height: 9px;
+}
+
+.particula-xl {
+  width: 12px;
+  height: 12px;
+}
+
+/* =============================================================
+   TRANSICIONES GLOBALES (modo oscuro/claro suave)
+   ============================================================= */
+* {
+  transition: background-color 0.7s ease, color 0.5s ease, border-color 0.7s ease, box-shadow 0.7s ease;
+}
+
+.particula,
+.particula * {
+  transition: none !important;
+}
+
+/* =============================================================
+   🟢 MODO CLARO – Colores suaves (sin blanco fuerte)
+   ============================================================= */
+.modo-claro {
+  --bg-primary: #f0f4f8;
+  --bg-secondary: #ffffff;
+  --text-primary: #1a2a3a;
+  --text-secondary: #3a4a5a;
+  --border-color: rgba(0, 100, 255, 0.1);
+}
+
+/* --- FORZAMOS EL FONDO DEL MAIN (para asegurar) --- */
+.modo-claro main {
+  background-color: #f0f4f8 !important;
+}
+
+/* --- Todos los fondos oscuros a claros --- */
+.modo-claro .bg-slate-950,
+.modo-claro .bg-slate-950\/80,
+.modo-claro .bg-slate-950\/50 {
+  background-color: #ffffff !important;
+}
+
+.modo-claro .bg-slate-900,
+.modo-claro .bg-slate-900\/80,
+.modo-claro .bg-slate-900\/50,
+.modo-claro .bg-slate-900\/30,
+.modo-claro .bg-slate-900\/20 {
+  background-color: #f8fafc !important;
+}
+
+.modo-claro .bg-slate-800 {
+  background-color: #e2e8f0 !important;
+}
+
+.modo-claro .bg-slate-700 {
+  background-color: #cbd5e1 !important;
+}
+
+/* --- Degradados oscuros a fondo claro sólido --- */
+.modo-claro .bg-gradient-to-br.from-slate-900\/80,
+.modo-claro .bg-gradient-to-br.to-slate-950\/80,
+.modo-claro .bg-gradient-to-br.from-slate-950\/80,
+.modo-claro .bg-gradient-to-br.to-slate-950\/80,
+.modo-claro .bg-gradient-to-br.from-slate-900\/80.to-slate-950\/80 {
+  background: #f1f5f9 !important;
+  background-image: none !important;
+}
+
+/* --- Barra lateral (fondo fijo, pero si usas variables) --- */
+.modo-claro .bg-gradient-to-b.from-\[\#0a0e2a\] {
+  background: linear-gradient(to bottom, #e8edf3, #d5dce4) !important;
+}
+
+.modo-claro .bg-gradient-to-b.to-\[\#1a1b3a\] {
+  background: linear-gradient(to bottom, #e8edf3, #d5dce4) !important;
+}
+
+/* --- Header y footer --- */
+.modo-claro header {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+.modo-claro footer {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* --- Bordes --- */
+.modo-claro .border-white\/10,
+.modo-claro .border-slate-700\/50,
+.modo-claro .border-white\/5 {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* --- Textos --- */
+.modo-claro .text-white {
+  color: #0f172a !important;
+}
+
+.modo-claro .text-slate-300 {
+  color: #334155 !important;
+}
+
+.modo-claro .text-slate-400 {
+  color: #475569 !important;
+}
+
+.modo-claro .text-slate-500 {
+  color: #64748b !important;
+}
+
+.modo-claro .text-slate-600 {
+  color: #475569 !important;
+}
+
+/* --- Colores específicos --- */
+.modo-claro .text-cyan-400 {
+  color: #0066cc !important;
+}
+
+.modo-claro .text-emerald-400 {
+  color: #0a7a5a !important;
+}
+
+.modo-claro .text-amber-400 {
+  color: #b8860b !important;
+}
+
+.modo-claro .text-red-400 {
+  color: #b33a3a !important;
+}
+
+/* --- Fondo de elementos con backdrop (opcional) --- */
+.modo-claro .backdrop-blur-sm,
+.modo-claro .backdrop-blur-lg {
+  backdrop-filter: none !important;
+}
+
+/* --- Elementos con fondo transparente o con opacidad --- */
+.modo-claro .bg-white\/5 {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+.modo-claro .bg-slate-900\/50 {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+}
+
+.modo-claro .bg-slate-900\/30 {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* --- Tarjetas con bordes de color --- */
+.modo-claro .border-cyan-500\/20 {
+  border-color: rgba(0, 100, 255, 0.15) !important;
+}
+
+.modo-claro .rounded-2xl.border-cyan-500\/20 {
+  background: rgba(255, 255, 255, 0.7) !important;
 }
