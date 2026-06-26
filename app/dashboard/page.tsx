@@ -115,13 +115,151 @@ interface Usuario {
     nombre: string;
     rol: string;
 }
+interface PlanFeature {
+    feature: string;
+    habilitado: boolean;
+    limite: number | null;
+    plan_codigo: string;
+    estado_suscripcion: string;
+}
+interface EmpresaDueno {
+    empresa_id: string;
+    empresa: string;
+    rut: string | null;
+    empresa_activa: boolean;
+    plan_codigo: string | null;
+    nombre_plan: string | null;
+    estado_suscripcion: string | null;
+    trial_ends_at: string | null;
+    fecha_inicio: string | null;
+    fecha_fin: string | null;
+    total_usuarios: number;
+    total_activos: number;
+    modo_demo?: boolean | null;
+    archivada?: boolean | null;
+}
 
+type FiltroEmpresasDueno = 'clientes' | 'trials' | 'demo' | 'archivadas' | 'todos';
+type FiltroUsuariosDueno = 'activos' | 'basurero' | 'demo' | 'todos';
+interface DiagnosticoDueno {
+    categoria: string;
+    detalle: string;
+    cantidad: number;
+    severidad: 'ok' | 'media' | 'alta' | string;
+}
+interface UsuarioDueno {
+    usuario_empresa_id: string;
+    usuario_id: string;
+    auth_id: string;
+    username: string | null;
+    apellido: string | null;
+    usuario_rol_texto: string | null;
+    usuario_activo: boolean;
+    empresa_id: string;
+    empresa: string;
+    empresa_activa: boolean;
+    plan_codigo: string | null;
+    estado_suscripcion: string | null;
+    rol_id: string | null;
+    rol_nombre: string;
+    rol_codigo: string;
+}
+type EstadoSolicitudPrueba =
+    | 'nueva'
+    | 'contactada'
+    | 'en_evaluacion'
+    | 'convertida'
+    | 'rechazada';
+
+interface SolicitudPruebaDueno {
+    id: number;
+    nombre: string | null;
+    rut: string | null;
+    telefono: string | null;
+    correo: string | null;
+    region: string | null;
+    pais: string | null;
+    estado: EstadoSolicitudPrueba;
+    origen: string | null;
+    empresa_creada_id: string | null;
+    notas_dueno: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+interface RolEmpresaDueno {
+    rol_id: string;
+    rol_nombre: string;
+    rol_descripcion: string | null;
+    rol_codigo: string;
+}
+interface RolGlobalUsuario {
+    rol_global: string;
+    nombre: string;
+    activo: boolean;
+}
+interface ModalSistema {
+    titulo: string;
+    mensaje: string;
+    detalle?: string;
+    tipo: 'error' | 'exito' | 'advertencia' | 'info';
+    icono: string;
+}
+interface UsuarioParaVincular {
+    usuario_id: string;
+    auth_id: string;
+    username: string | null;
+    apellido: string | null;
+    usuario_rol_texto: string | null;
+    usuario_activo: boolean;
+    total_empresas: number;
+}
+interface NuevaEmpresaDueno {
+    nombre: string;
+    rut: string;
+    plan_codigo: 'gratis' | 'basico' | 'pro' | 'empresa';
+    estado_suscripcion: 'trial' | 'activa' | 'vencida' | 'cancelada' | 'suspendida';
+    activa: boolean;
+}
+interface PlanSaasDueno {
+    codigo: 'gratis' | 'basico' | 'pro' | 'empresa';
+    nombre: string;
+    subtitulo: string | null;
+    precio: string | null;
+    descripcion: string | null;
+    color: 'slate' | 'cyan' | 'purple' | 'emerald' | string;
+    destacado: boolean;
+    activo: boolean;
+    orden: number;
+    limite_administrador: number | null;
+    limite_soporte: number | null;
+    limite_tecnico: number | null;
+}
 // =============================================================
 // 🟢 SECCIÓN VERDE – Componente principal DashboardCompleto
 // =============================================================
 export default function DashboardCompleto() {
     const router = useRouter();
     const referenciaAnimación = useRef<number | null>(null);
+    const busquedaUsuarioVincularRef = useRef('');
+    const nombreNuevaEmpresaRef = useRef('');
+    const rutNuevaEmpresaRef = useRef('');
+    const emailCrearUsuarioRef = useRef('');
+    const passwordCrearUsuarioRef = useRef('');
+    const usernameCrearUsuarioRef = useRef('');
+    const apellidoCrearUsuarioRef = useRef('');
+    const nombrePlanSaasRef = useRef('');
+    const subtituloPlanSaasRef = useRef('');
+    const precioPlanSaasRef = useRef('');
+    const descripcionPlanSaasRef = useRef('');
+    const limiteAdminPlanSaasRef = useRef('');
+    const limiteSoportePlanSaasRef = useRef('');
+    const limiteTecnicoPlanSaasRef = useRef('');
+    const usernameEditarUsuarioRef = useRef('');
+    const apellidoEditarUsuarioRef = useRef('');
+    const emailEditarUsuarioRef = useRef('');
+    const passwordDemoSolicitudRef = useRef('FleetVision123');
+    const confirmacionBorrarUsuarioRef = useRef('');
 
     // -------------------- ESTADOS PRINCIPALES --------------------
     const [cargando, setCargando] = useState(true);
@@ -147,6 +285,105 @@ export default function DashboardCompleto() {
     // -------------------- ESTADOS DE DATOS ------------------------
     const [empresaActual, setEmpresaActual] = useState<Empresa | null>(null);
     const [datosUsuario, setDatosUsuario] = useState<Usuario | null>(null);
+    const [featuresPlan, setFeaturesPlan] = useState<PlanFeature[]>([]);
+    const [moduloDuenoActivo, setModuloDuenoActivo] = useState<
+        'resumen' |
+        'empresas' |
+        'usuarios' |
+        'planes' |
+        'solicitudes' |
+        'roles' |
+        'diagnostico'
+    >('resumen');
+    const [empresasDueno, setEmpresasDueno] = useState<EmpresaDueno[]>([]);
+    const [filtroEmpresasDueno, setFiltroEmpresasDueno] = useState<FiltroEmpresasDueno>('clientes');
+    const [cargandoEmpresasDueno, setCargandoEmpresasDueno] = useState(false);
+    const [planesSaas, setPlanesSaas] = useState<PlanSaasDueno[]>([]);
+    const [cargandoPlanesSaas, setCargandoPlanesSaas] = useState(false);
+    const [modalEditarPlanAbierto, setModalEditarPlanAbierto] = useState(false);
+    const [planEditando, setPlanEditando] = useState<PlanSaasDueno | null>(null);
+    const [guardandoPlanSaas, setGuardandoPlanSaas] = useState(false);
+    const [precioPlanPreview, setPrecioPlanPreview] = useState('');
+
+    const [planDestacadoEditando, setPlanDestacadoEditando] = useState(false);
+    const [planActivoEditando, setPlanActivoEditando] = useState(true);
+
+    const [limiteAdminIlimitado, setLimiteAdminIlimitado] = useState(false);
+    const [limiteSoporteIlimitado, setLimiteSoporteIlimitado] = useState(false);
+    const [limiteTecnicoIlimitado, setLimiteTecnicoIlimitado] = useState(false);
+    const [empresaGestionSeleccionada, setEmpresaGestionSeleccionada] = useState<EmpresaDueno | null>(null);
+    const [guardandoGestionEmpresa, setGuardandoGestionEmpresa] = useState(false);
+    const [modalConfirmarSuscripcion, setModalConfirmarSuscripcion] = useState<{
+        abierto: boolean;
+        empresaId: string;
+        empresaNombre: string;
+        estado: 'trial' | 'activa' | 'vencida' | 'cancelada' | 'suspendida';
+    } | null>(null);
+    const [mostrarModalNuevaEmpresa, setMostrarModalNuevaEmpresa] = useState(false);
+    const [guardandoNuevaEmpresa, setGuardandoNuevaEmpresa] = useState(false);
+    const [nuevaEmpresaDueno, setNuevaEmpresaDueno] = useState<NuevaEmpresaDueno>({
+        nombre: '',
+        rut: '',
+        plan_codigo: 'gratis',
+        estado_suscripcion: 'trial',
+        activa: true,
+    });
+    const [diagnosticoDueno, setDiagnosticoDueno] = useState<DiagnosticoDueno[]>([]);
+    const [cargandoDiagnosticoDueno, setCargandoDiagnosticoDueno] = useState(false);
+    const [solicitudesPrueba, setSolicitudesPrueba] = useState<SolicitudPruebaDueno[]>([]);
+    const [cargandoSolicitudesPrueba, setCargandoSolicitudesPrueba] = useState(false);
+    const [filtroEstadoSolicitud, setFiltroEstadoSolicitud] = useState<'todas' | EstadoSolicitudPrueba>('todas');
+    const [guardandoSolicitudPrueba, setGuardandoSolicitudPrueba] = useState(false);
+    const [modalConvertirSolicitudAbierto, setModalConvertirSolicitudAbierto] = useState(false);
+    const [solicitudParaConvertir, setSolicitudParaConvertir] = useState<SolicitudPruebaDueno | null>(null);
+    const [tipoClienteSolicitud, setTipoClienteSolicitud] = useState<'empresa' | 'persona_natural'>('empresa');
+    const [planTrialSolicitud, setPlanTrialSolicitud] = useState<'gratis' | 'basico' | 'pro' | 'empresa'>('pro');
+    const [convirtiendoSolicitud, setConvirtiendoSolicitud] = useState(false);
+    const [usuariosDueno, setUsuariosDueno] = useState<UsuarioDueno[]>([]);
+    const [filtroUsuariosDueno, setFiltroUsuariosDueno] = useState<FiltroUsuariosDueno>('activos');
+    const [empresaModoDemo, setEmpresaModoDemo] = useState(false);
+    const [empresaNombreActual, setEmpresaNombreActual] = useState('');
+    const [rolesEmpresaDueno, setRolesEmpresaDueno] = useState<RolEmpresaDueno[]>([]);
+    const [cargandoUsuariosDueno, setCargandoUsuariosDueno] = useState(false);
+    const [usuarioGestionSeleccionado, setUsuarioGestionSeleccionado] = useState<UsuarioDueno | null>(null);
+    const [guardandoGestionUsuario, setGuardandoGestionUsuario] = useState(false);
+    const [mostrarModalVincularUsuario, setMostrarModalVincularUsuario] = useState(false);
+    const [buscandoUsuariosVincular, setBuscandoUsuariosVincular] = useState(false);
+    const [guardandoVincularUsuario, setGuardandoVincularUsuario] = useState(false);
+    const [mostrarModalCrearUsuario, setMostrarModalCrearUsuario] = useState(false);
+    const [guardandoCrearUsuario, setGuardandoCrearUsuario] = useState(false);
+    const [empresaCrearUsuario, setEmpresaCrearUsuario] = useState('');
+    const [rolCrearUsuario, setRolCrearUsuario] = useState('');
+    const [activoCrearUsuario, setActivoCrearUsuario] = useState(true);
+    // -------------------- ESTADOS PARA EDITAR USUARIO -------------
+    const [modalEditarUsuarioAbierto, setModalEditarUsuarioAbierto] = useState(false);
+    const [guardandoEditarUsuario, setGuardandoEditarUsuario] = useState(false);
+    const [borrandoUsuario, setBorrandoUsuario] = useState(false);
+    const [modalBorrarUsuarioAbierto, setModalBorrarUsuarioAbierto] = useState(false);
+    const [modoConfirmacionDefinitiva, setModoConfirmacionDefinitiva] = useState(false);
+    const [errorModalBorrarUsuario, setErrorModalBorrarUsuario] = useState('');
+
+    const [formEditarUsuario, setFormEditarUsuario] = useState({
+        usuario_id: '',
+        auth_id: '',
+        username: '',
+        apellido: '',
+        email: '',
+        activo: true,
+    });
+    const [usuariosParaVincular, setUsuariosParaVincular] = useState<UsuarioParaVincular[]>([]);
+    const [usuarioSeleccionadoParaVincular, setUsuarioSeleccionadoParaVincular] = useState<UsuarioParaVincular | null>(null);
+    const [empresaSeleccionadaParaVincular, setEmpresaSeleccionadaParaVincular] = useState('');
+    const [rolSeleccionadoParaVincular, setRolSeleccionadoParaVincular] = useState('');
+
+    const [empresaDestinoUsuario, setEmpresaDestinoUsuario] = useState('');
+    const [rolDestinoUsuario, setRolDestinoUsuario] = useState('Administrador');
+    const [guardandoCambioEmpresaUsuario, setGuardandoCambioEmpresaUsuario] = useState(false);
+    const [modalConfirmarCambioEmpresaUsuario, setModalConfirmarCambioEmpresaUsuario] = useState(false);
+
+    const [modalSistema, setModalSistema] = useState<ModalSistema | null>(null);
+    const [esAdminGlobal, setEsAdminGlobal] = useState(false);
+    const [rolGlobal, setRolGlobal] = useState<RolGlobalUsuario | null>(null);
 
     // -------------------- ESTADOS DE EFECTOS VISUALES ------------
     const [efectosHabilitados, setEfectosHabilitados] = useState(true);
@@ -189,6 +426,7 @@ export default function DashboardCompleto() {
                         nombre: user.user_metadata?.nombre || 'Usuario',
                         rol: user.user_metadata?.rol || 'Administrador'
                     });
+                    await cargarRolGlobalUsuario();
                     await cargarEmpresaUsuario();
                 }
             } catch (error) {
@@ -200,20 +438,1715 @@ export default function DashboardCompleto() {
         inicializarDashboard();
     }, []);
 
-    // --- Efecto para cargar datos cuando cambia la empresa ---
+    // --- Efecto para cargar datos y permisos cuando cambia la empresa ---
     useEffect(() => {
         if (empresaActual) {
             cargarDatosEmpresa(empresaActual.id);
+            cargarFeaturesEmpresa(empresaActual.id);
         }
     }, [empresaActual]);
+    // --- Efecto para detectar Modo Demo ---
+    useEffect(() => {
+        const modoDemoStorage =
+            sessionStorage.getItem('empresa_modo_demo') === 'true' ||
+            localStorage.getItem('empresa_modo_demo') === 'true';
+
+        const nombreEmpresaStorage =
+            sessionStorage.getItem('empresa_nombre') ||
+            localStorage.getItem('empresa_nombre') ||
+            '';
+
+        setEmpresaModoDemo(modoDemoStorage);
+        setEmpresaNombreActual(nombreEmpresaStorage);
+    }, []);
 
     // =============================================================
     // 🔵 SECCIÓN AZUL – Funciones de gestión de empresa
     // =============================================================
+    const mostrarModalSistema = (
+        tipo: 'error' | 'exito' | 'advertencia' | 'info',
+        titulo: string,
+        mensaje: string,
+        detalle?: string
+    ) => {
+        const iconos = {
+            error: '⛔',
+            exito: '✅',
+            advertencia: '⚠️',
+            info: 'ℹ️',
+        };
+
+        setModalSistema({
+            tipo,
+            titulo,
+            mensaje,
+            detalle,
+            icono: iconos[tipo],
+        });
+    };
+    const mostrarAccionDemo = (
+        titulo: string = 'Acción simulada',
+        mensaje: string = 'Esta acción fue ejecutada en modo demo.'
+    ) => {
+        mostrarModalSistema(
+            'info',
+            `🧪 ${titulo}`,
+            mensaje,
+            'Esta acción no se guardó en Supabase porque la empresa actual está configurada como ambiente de demostración.'
+        );
+    };
+
+    const cerrarModalSistema = () => {
+        setModalSistema(null);
+    };
+    const cargarRolGlobalUsuario = async () => {
+        try {
+            console.log('Revisando rol global del usuario...');
+
+            const { data, error } = await supabase.rpc('mi_rol_global');
+
+            if (error) {
+                console.error('Error revisando rol global:', error);
+                setEsAdminGlobal(false);
+                setRolGlobal(null);
+                return;
+            }
+
+            const roles = (data || []) as RolGlobalUsuario[];
+            const rolPrincipal = roles[0] || null;
+
+            setRolGlobal(rolPrincipal);
+            setEsAdminGlobal(!!rolPrincipal);
+
+            console.log('Rol global cargado:', rolPrincipal);
+        } catch (error) {
+            console.error('Error general revisando rol global:', error);
+            setEsAdminGlobal(false);
+            setRolGlobal(null);
+        }
+    };
+
+    const cargarFeaturesEmpresa = async (empresaId: string) => {
+        try {
+            console.log('Cargando features del plan para empresa:', empresaId);
+
+            const { data, error } = await supabase.rpc('mis_features_empresa', {
+                p_empresa_id: empresaId,
+            });
+
+            if (error) {
+                console.error('Error cargando features del plan:', error);
+                setFeaturesPlan([]);
+                return;
+            }
+
+            setFeaturesPlan((data || []) as PlanFeature[]);
+            console.log('Features del plan cargadas:', data);
+        } catch (error) {
+            console.error('Error general cargando features del plan:', error);
+            setFeaturesPlan([]);
+        }
+    };
+    const limpiarNumeroPrecioPlan = (valor: string | null | undefined) => {
+        return (valor || '').replace(/\D/g, '');
+    };
+
+    const formatearPrecioMensualPlan = (valor: string) => {
+        const limpio = valor.replace(/\D/g, '');
+
+        if (!limpio) return '';
+
+        return `${Number(limpio).toLocaleString('es-CL')}/mes`;
+    };
+
+    const mostrarPrecioPlan = (precio: string | null | undefined) => {
+        const texto = (precio || '').trim();
+
+        if (!texto) return 'Sin precio';
+
+        if (texto.toLowerCase().includes('/mes')) {
+            return texto;
+        }
+
+        const soloNumeros = limpiarNumeroPrecioPlan(texto);
+
+        if (soloNumeros) {
+            return formatearPrecioMensualPlan(soloNumeros);
+        }
+
+        return texto;
+    };
+    const cargarPlanesSaas = async () => {
+        try {
+            setCargandoPlanesSaas(true);
+
+            const { data, error } = await supabase.rpc('dueno_listar_planes_saas');
+
+            if (error) {
+                console.error('Error cargando planes SaaS:', error);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudieron cargar los planes',
+                    error.message || 'Supabase rechazó la consulta de planes.',
+                    'Revisa que la función dueno_listar_planes_saas exista y que tengas permisos de dueño.'
+                );
+
+                setPlanesSaas([]);
+                return;
+            }
+
+            setPlanesSaas((data || []) as PlanSaasDueno[]);
+        } catch (error: any) {
+            console.error('Error general cargando planes SaaS:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un error cargando los planes.',
+                'Revisa la consola del navegador.'
+            );
+
+            setPlanesSaas([]);
+        } finally {
+            setCargandoPlanesSaas(false);
+        }
+    };
+
+    const abrirModalEditarPlan = (plan: PlanSaasDueno) => {
+        setPlanEditando(plan);
+
+        nombrePlanSaasRef.current = plan.nombre || '';
+        subtituloPlanSaasRef.current = plan.subtitulo || '';
+        precioPlanSaasRef.current = plan.precio || '';
+        descripcionPlanSaasRef.current = plan.descripcion || '';
+
+        limiteAdminPlanSaasRef.current =
+            plan.limite_administrador === null ? '' : String(plan.limite_administrador);
+
+        limiteSoportePlanSaasRef.current =
+            plan.limite_soporte === null ? '' : String(plan.limite_soporte);
+
+        limiteTecnicoPlanSaasRef.current =
+            plan.limite_tecnico === null ? '' : String(plan.limite_tecnico);
+
+        setLimiteAdminIlimitado(plan.limite_administrador === null);
+        setLimiteSoporteIlimitado(plan.limite_soporte === null);
+        setLimiteTecnicoIlimitado(plan.limite_tecnico === null);
+
+        setPlanDestacadoEditando(plan.destacado);
+        setPlanActivoEditando(plan.activo);
+
+        setModalEditarPlanAbierto(true);
+    };
+
+    const leerLimitePlan = (
+        texto: string,
+        ilimitado: boolean,
+        nombreRol: string
+    ): number | null => {
+        if (ilimitado) return null;
+
+        const valorLimpio = texto.trim();
+
+        if (valorLimpio === '') {
+            return 0;
+        }
+
+        const numero = Number(valorLimpio);
+
+        if (!Number.isInteger(numero) || numero < 0 || numero > 999) {
+            throw new Error(`El límite de ${nombreRol} debe ser un número entero entre 0 y 999.`);
+        }
+
+        return numero;
+    };
+
+    const guardarPlanSaas = async () => {
+        if (!planEditando) {
+            mostrarModalSistema(
+                'advertencia',
+                'Plan no seleccionado',
+                'No hay un plan seleccionado para guardar.',
+                'Cierra el modal y vuelve a abrir Editar plan.'
+            );
+            return;
+        }
+
+        const nombre = nombrePlanSaasRef.current.trim();
+        const subtitulo = subtituloPlanSaasRef.current.trim();
+        const precioNumero = precioPlanSaasRef.current.trim();
+        const precio = formatearPrecioMensualPlan(precioNumero);
+        const descripcion = descripcionPlanSaasRef.current.trim();
+
+        if (!nombre) {
+            mostrarModalSistema(
+                'advertencia',
+                'Falta el nombre del plan',
+                'Debes ingresar un nombre para el plan.',
+                'Ejemplo: Gratis, Básico, Pro o Empresa.'
+            );
+            return;
+        }
+
+        try {
+            setGuardandoPlanSaas(true);
+
+            const limiteAdministrador = leerLimitePlan(
+                limiteAdminPlanSaasRef.current,
+                limiteAdminIlimitado,
+                'Administrador'
+            );
+
+            const limiteSoporte = leerLimitePlan(
+                limiteSoportePlanSaasRef.current,
+                limiteSoporteIlimitado,
+                'Soporte'
+            );
+
+            const limiteTecnico = leerLimitePlan(
+                limiteTecnicoPlanSaasRef.current,
+                limiteTecnicoIlimitado,
+                'Técnico'
+            );
+
+            const { data, error } = await supabase.rpc('dueno_actualizar_plan_saas', {
+                p_codigo: planEditando.codigo,
+                p_nombre: nombre,
+                p_subtitulo: subtitulo,
+                p_precio: precio,
+                p_descripcion: descripcion,
+                p_destacado: planDestacadoEditando,
+                p_activo: planActivoEditando,
+                p_limite_administrador: limiteAdministrador,
+                p_limite_soporte: limiteSoporte,
+                p_limite_tecnico: limiteTecnico,
+            });
+
+            if (error) {
+                const detalleError =
+                    JSON.stringify(error, null, 2) ||
+                    error.message ||
+                    error.details ||
+                    error.hint ||
+                    'Supabase rechazó la actualización, pero no devolvió detalle visible.';
+
+                console.log('Error actualizando plan SaaS completo:', detalleError);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo actualizar el plan',
+                    error.message || 'Supabase rechazó la actualización del plan.',
+                    detalleError
+                );
+
+                return;
+            }
+
+            await cargarPlanesSaas();
+            await cargarUsuariosDueno();
+            await cargarEmpresasDueno();
+
+            setModalEditarPlanAbierto(false);
+            setPlanEditando(null);
+
+            mostrarModalSistema(
+                'exito',
+                'Plan actualizado correctamente',
+                data?.mensaje || `El plan ${nombre} fue actualizado.`,
+                'Los límites ya quedaron guardados en Supabase.'
+            );
+        } catch (error: any) {
+            console.error('Error general guardando plan SaaS:', error);
+
+            mostrarModalSistema(
+                'advertencia',
+                'No se pudo guardar el plan',
+                error?.message || 'Ocurrió un error al validar o guardar los límites.',
+                'Revisa los valores ingresados.'
+            );
+        } finally {
+            setGuardandoPlanSaas(false);
+        }
+    };
+
+    const cargarEmpresasDueno = async () => {
+        try {
+            setCargandoEmpresasDueno(true);
+            console.log('Cargando empresas desde Panel Dueño...');
+
+            const { data, error } = await supabase.rpc('dueno_listar_empresas');
+
+            if (error) {
+                console.error('Error cargando empresas del Panel Dueño:', error);
+                alert('No se pudieron cargar las empresas. Revisa permisos de dueño.');
+                setEmpresasDueno([]);
+                return;
+            }
+
+            setEmpresasDueno((data || []) as EmpresaDueno[]);
+            console.log('Empresas cargadas para Panel Dueño:', data);
+        } catch (error) {
+            console.error('Error general cargando empresas del Panel Dueño:', error);
+            setEmpresasDueno([]);
+        } finally {
+            setCargandoEmpresasDueno(false);
+        }
+    };
+    const cambiarPlanEmpresaDueno = async (
+        empresaId: string,
+        planCodigo: 'gratis' | 'basico' | 'pro' | 'empresa'
+    ) => {
+        try {
+            setGuardandoGestionEmpresa(true);
+
+            console.log('Intentando cambiar plan:', {
+                empresaId,
+                planCodigo,
+            });
+
+            const { data, error } = await supabase.rpc('dueno_cambiar_plan_empresa', {
+                p_empresa_id: empresaId,
+                p_plan_codigo: planCodigo,
+            });
+
+            if (error) {
+                console.error('Error Supabase cambiando plan:', error);
+
+                alert(
+                    `No se pudo cambiar el plan.\n\n` +
+                    `Código: ${error.code || 'sin código'}\n` +
+                    `Mensaje: ${error.message || 'sin mensaje'}\n` +
+                    `Detalle: ${error.details || 'sin detalle'}`
+                );
+
+                return;
+            }
+
+            console.log('Plan cambiado correctamente:', data);
+
+            await cargarEmpresasDueno();
+            setEmpresaGestionSeleccionada(null);
+
+            alert(`Plan cambiado correctamente a ${planCodigo}.`);
+        } catch (error: any) {
+            console.error('Error general cambiando plan:', error);
+
+            alert(
+                `Error general cambiando plan:\n\n` +
+                `${error?.message || JSON.stringify(error)}`
+            );
+        } finally {
+            setGuardandoGestionEmpresa(false);
+        }
+    };
+    const crearEmpresaDueno = async () => {
+        const nombreLimpio = nombreNuevaEmpresaRef.current.trim();
+        const rutLimpio = rutNuevaEmpresaRef.current.trim();
+
+        if (!nombreLimpio) {
+            mostrarModalSistema(
+                'advertencia',
+                'Falta el nombre de la empresa',
+                'Debes escribir el nombre de la empresa antes de crearla.',
+                'El RUT puede quedar vacío, pero el nombre es obligatorio.'
+            );
+            return;
+        }
+
+        try {
+            setGuardandoNuevaEmpresa(true);
+
+            const { data, error } = await supabase.rpc('dueno_crear_empresa', {
+                p_nombre: nombreLimpio,
+                p_rut: rutLimpio || null,
+                p_plan_codigo: nuevaEmpresaDueno.plan_codigo,
+                p_estado_suscripcion: nuevaEmpresaDueno.estado_suscripcion,
+                p_activa: nuevaEmpresaDueno.activa,
+            });
+
+            if (error) {
+                console.error('Error creando empresa:', error);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo crear la empresa',
+                    error.message || 'Supabase rechazó la creación de la empresa.',
+                    'Revisa si el RUT ya existe o si la función dueno_crear_empresa está correctamente creada.'
+                );
+
+                return;
+            }
+
+            console.log('Empresa creada:', data);
+
+            await cargarEmpresasDueno();
+            nombreNuevaEmpresaRef.current = '';
+            rutNuevaEmpresaRef.current = '';
+
+            setNuevaEmpresaDueno({
+                nombre: '',
+                rut: '',
+                plan_codigo: 'gratis',
+                estado_suscripcion: 'trial',
+                activa: true,
+            });
+
+            setMostrarModalNuevaEmpresa(false);
+
+            mostrarModalSistema(
+                'exito',
+                'Empresa creada correctamente',
+                `La empresa ${nombreLimpio} fue registrada en FleetVision.`,
+                'Ya aparece en el módulo Empresas con su plan y estado inicial.'
+            );
+        } catch (error: any) {
+            console.error('Error general creando empresa:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un error al crear la empresa.',
+                'Intenta nuevamente o revisa la consola del navegador.'
+            );
+        } finally {
+            setGuardandoNuevaEmpresa(false);
+        }
+    };
+
+    const cambiarEstadoEmpresaDueno = async (empresaId: string, activa: boolean) => {
+        try {
+            setGuardandoGestionEmpresa(true);
+
+            const { error } = await supabase.rpc('dueno_cambiar_estado_empresa', {
+                p_empresa_id: empresaId,
+                p_activa: activa,
+            });
+
+            if (error) throw error;
+
+            await cargarEmpresasDueno();
+            setEmpresaGestionSeleccionada(null);
+
+            alert(activa ? 'Empresa activada correctamente.' : 'Empresa desactivada correctamente.');
+        } catch (error) {
+            console.error('Error cambiando estado de empresa:', error);
+            alert('No se pudo cambiar el estado de la empresa.');
+        } finally {
+            setGuardandoGestionEmpresa(false);
+        }
+    };
+
+    const cambiarEstadoSuscripcionDueno = async (
+        empresaId: string,
+        estado: 'trial' | 'activa' | 'vencida' | 'cancelada' | 'suspendida'
+    ) => {
+        try {
+            setGuardandoGestionEmpresa(true);
+
+            const { data, error } = await supabase.rpc('dueno_cambiar_estado_suscripcion', {
+                p_empresa_id: empresaId,
+                p_estado: estado,
+            });
+
+            if (error) {
+                const detalleError =
+                    JSON.stringify(error, null, 2) ||
+                    error.message ||
+                    error.details ||
+                    error.hint ||
+                    'Supabase rechazó el cambio de estado.';
+
+                console.log('Error cambiando estado de suscripción:', detalleError);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo cambiar la suscripción',
+                    error.message || 'Supabase rechazó el cambio de estado.',
+                    detalleError
+                );
+
+                return;
+            }
+
+            await cargarEmpresasDueno();
+
+            setEmpresaGestionSeleccionada((prev) =>
+                prev
+                    ? {
+                        ...prev,
+                        estado_suscripcion: estado,
+                    }
+                    : prev
+            );
+
+            mostrarModalSistema(
+                'exito',
+                'Suscripción actualizada',
+                `La empresa ahora quedó en estado ${estado}.`,
+                data?.tabla_actualizada
+                    ? `Actualizado en ${data.tabla_actualizada}.${data.columna_actualizada}`
+                    : 'Cambio guardado correctamente en Supabase.'
+            );
+        } catch (error: any) {
+            console.log('Error general cambiando estado de suscripción:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'No se pudo cambiar el estado de suscripción.',
+                'Revisa la consola o la función dueno_cambiar_estado_suscripcion.'
+            );
+        } finally {
+            setGuardandoGestionEmpresa(false);
+        }
+    };
+    const abrirModalConfirmarSuscripcion = (
+        empresaId: string,
+        empresaNombre: string,
+        estado: 'trial' | 'activa' | 'vencida' | 'cancelada' | 'suspendida'
+    ) => {
+        setModalConfirmarSuscripcion({
+            abierto: true,
+            empresaId,
+            empresaNombre,
+            estado,
+        });
+    };
+
+    const cerrarModalConfirmarSuscripcion = () => {
+        setModalConfirmarSuscripcion(null);
+    };
+
+    const confirmarCambioSuscripcion = async () => {
+        if (!modalConfirmarSuscripcion) return;
+
+        const { empresaId, estado } = modalConfirmarSuscripcion;
+
+        cerrarModalConfirmarSuscripcion();
+
+        await cambiarEstadoSuscripcionDueno(empresaId, estado);
+    };
+
+    const extenderTrialEmpresaDueno = async (empresaId: string) => {
+        const diasTexto = prompt('¿Cuántos días quieres agregar al trial? Ejemplo: 14');
+
+        if (!diasTexto) return;
+
+        const dias = Number(diasTexto);
+
+        if (!Number.isInteger(dias) || dias <= 0 || dias > 365) {
+            alert('Debes ingresar un número válido entre 1 y 365.');
+            return;
+        }
+
+        try {
+            setGuardandoGestionEmpresa(true);
+
+            const { error } = await supabase.rpc('dueno_extender_trial_empresa', {
+                p_empresa_id: empresaId,
+                p_dias: dias,
+            });
+
+            if (error) throw error;
+
+            await cargarEmpresasDueno();
+            setEmpresaGestionSeleccionada(null);
+
+            alert(`Trial extendido por ${dias} días.`);
+        } catch (error) {
+            console.error('Error extendiendo trial:', error);
+            alert('No se pudo extender el trial.');
+        } finally {
+            setGuardandoGestionEmpresa(false);
+        }
+    };
+    const cargarDiagnosticoDueno = async () => {
+        try {
+            setCargandoDiagnosticoDueno(true);
+            console.log('Cargando diagnóstico general del Panel Dueño...');
+
+            const { data, error } = await supabase.rpc('dueno_diagnostico_general');
+
+            if (error) {
+                console.error('Error cargando diagnóstico:', error);
+                alert('No se pudo cargar el diagnóstico general.');
+                setDiagnosticoDueno([]);
+                return;
+            }
+
+            setDiagnosticoDueno((data || []) as DiagnosticoDueno[]);
+            console.log('Diagnóstico cargado:', data);
+        } catch (error) {
+            console.error('Error general cargando diagnóstico:', error);
+            setDiagnosticoDueno([]);
+        } finally {
+            setCargandoDiagnosticoDueno(false);
+        }
+    };
+    const cargarSolicitudesPrueba = async () => {
+        try {
+            setCargandoSolicitudesPrueba(true);
+
+            const { data, error } = await supabase.rpc('dueno_listar_solicitudes_prueba');
+
+            if (error) {
+                console.log('Error cargando solicitudes de prueba:', error);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudieron cargar las solicitudes',
+                    error.message || 'Supabase rechazó la consulta.',
+                    'Revisa la función dueno_listar_solicitudes_prueba.'
+                );
+
+                setSolicitudesPrueba([]);
+                return;
+            }
+
+            setSolicitudesPrueba((data || []) as SolicitudPruebaDueno[]);
+        } catch (error: any) {
+            console.log('Error general cargando solicitudes:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un error cargando las solicitudes.',
+                'Revisa la consola del navegador.'
+            );
+
+            setSolicitudesPrueba([]);
+        } finally {
+            setCargandoSolicitudesPrueba(false);
+        }
+    };
+
+    const cambiarEstadoSolicitudPrueba = async (
+        solicitudId: number,
+        estado: EstadoSolicitudPrueba
+    ) => {
+        try {
+            setGuardandoSolicitudPrueba(true);
+
+            const { data, error } = await supabase.rpc('dueno_cambiar_estado_solicitud_prueba', {
+                p_contacto_id: solicitudId,
+                p_estado: estado,
+                p_notas: null,
+            });
+
+            if (error) {
+                const detalleError =
+                    JSON.stringify(error, null, 2) ||
+                    error.message ||
+                    'Supabase rechazó el cambio de estado.';
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo cambiar el estado',
+                    error.message || 'Supabase rechazó el cambio de estado.',
+                    detalleError
+                );
+
+                return;
+            }
+
+            await cargarSolicitudesPrueba();
+
+            mostrarModalSistema(
+                'exito',
+                'Solicitud actualizada',
+                data?.mensaje || 'El estado de la solicitud fue actualizado.',
+                `Nuevo estado: ${estado}`
+            );
+        } catch (error: any) {
+            console.log('Error general cambiando solicitud:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'No se pudo cambiar el estado de la solicitud.',
+                'Revisa la consola del navegador.'
+            );
+        } finally {
+            setGuardandoSolicitudPrueba(false);
+        }
+    };
+    const abrirModalConvertirSolicitud = (solicitud: SolicitudPruebaDueno) => {
+        console.log('Abriendo modal convertir solicitud:', solicitud);
+
+        setSolicitudParaConvertir(solicitud);
+        setTipoClienteSolicitud('empresa');
+        setPlanTrialSolicitud('pro');
+        setModalConvertirSolicitudAbierto(true);
+    };
+
+    const cerrarModalConvertirSolicitud = () => {
+        setModalConvertirSolicitudAbierto(false);
+        setSolicitudParaConvertir(null);
+        setTipoClienteSolicitud('empresa');
+        setPlanTrialSolicitud('pro');
+    };
+
+    const convertirSolicitudAEmpresa = async () => {
+        if (!solicitudParaConvertir) {
+            mostrarModalSistema(
+                'advertencia',
+                'Solicitud no seleccionada',
+                'No hay una solicitud seleccionada para crear usuario demo.',
+                'Cierra el modal y vuelve a intentarlo.'
+            );
+            return;
+        }
+
+        const passwordTemporal = passwordDemoSolicitudRef.current.trim();
+
+        if (!passwordTemporal || passwordTemporal.length < 6) {
+            mostrarModalSistema(
+                'advertencia',
+                'Contraseña inválida',
+                'La contraseña temporal debe tener al menos 6 caracteres.',
+                'Ejemplo: FleetVision123'
+            );
+            return;
+        }
+
+        try {
+            setConvirtiendoSolicitud(true);
+
+            const {
+                data: { session },
+                error: sessionError,
+            } = await supabase.auth.getSession();
+
+            if (sessionError || !session?.access_token) {
+                mostrarModalSistema(
+                    'error',
+                    'Sesión no válida',
+                    'No se pudo obtener tu sesión actual.',
+                    'Cierra sesión, vuelve a entrar e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const respuesta = await fetch('/api/admin/crear-usuario-demo', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${session.access_token}`,
+                },
+                body: JSON.stringify({
+                    contacto_id: solicitudParaConvertir.id,
+                    password: passwordTemporal,
+                }),
+            });
+
+            const resultado = await respuesta.json();
+
+            if (!respuesta.ok || !resultado.ok) {
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo crear el usuario demo',
+                    resultado.error || 'La ruta segura rechazó la creación.',
+                    resultado.detalle || 'Revisa la consola o la terminal de Next.js.'
+                );
+                return;
+            }
+
+            await cargarSolicitudesPrueba();
+            await cargarUsuariosDueno();
+            await cargarEmpresasDueno();
+
+            cerrarModalConvertirSolicitud();
+
+            mostrarModalSistema(
+                'exito',
+                'Usuario demo creado',
+                resultado.mensaje || 'El acceso demo fue creado correctamente.',
+                `Usuario: ${resultado.usuario?.username || 'creado'} · Correo: ${resultado.usuario?.email || solicitudParaConvertir.correo || 'sin correo'} · Contraseña temporal: ${passwordTemporal}`
+            );
+        } catch (error: any) {
+            console.log('Error creando usuario demo:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'No se pudo crear el usuario demo.',
+                'Revisa la consola del navegador y la terminal de Next.js.'
+            );
+        } finally {
+            setConvirtiendoSolicitud(false);
+        }
+    };
+    const obtenerEstadoSolicitudVisual = (estado: string | null) => {
+        switch (estado) {
+            case 'nueva':
+                return {
+                    texto: 'Nueva',
+                    clase: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300',
+                    icono: '🆕',
+                };
+            case 'contactada':
+                return {
+                    texto: 'Contactada',
+                    clase: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+                    icono: '📞',
+                };
+            case 'en_evaluacion':
+                return {
+                    texto: 'En evaluación',
+                    clase: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+                    icono: '🔎',
+                };
+            case 'convertida':
+                return {
+                    texto: 'Convertida',
+                    clase: 'border-purple-500/30 bg-purple-500/10 text-purple-300',
+                    icono: '✅',
+                };
+            case 'rechazada':
+                return {
+                    texto: 'Rechazada',
+                    clase: 'border-red-500/30 bg-red-500/10 text-red-300',
+                    icono: '❌',
+                };
+            default:
+                return {
+                    texto: 'Sin estado',
+                    clase: 'border-slate-500/30 bg-slate-500/10 text-slate-300',
+                    icono: 'ℹ️',
+                };
+        }
+    };
+
+    const solicitudesFiltradas = solicitudesPrueba.filter((solicitud) => {
+        if (filtroEstadoSolicitud === 'todas') return true;
+
+        return solicitud.estado === filtroEstadoSolicitud;
+    });
+
+    const cargarUsuariosDueno = async () => {
+        try {
+            setCargandoUsuariosDueno(true);
+            console.log('Cargando usuarios del Panel Dueño...');
+
+            const [respuestaUsuarios, respuestaRoles] = await Promise.all([
+                supabase.rpc('dueno_listar_usuarios_empresas'),
+                supabase.rpc('dueno_listar_roles_empresa'),
+            ]);
+
+            if (respuestaUsuarios.error) {
+                console.error('Error cargando usuarios:', respuestaUsuarios.error);
+                alert('No se pudieron cargar los usuarios.');
+                setUsuariosDueno([]);
+                return;
+            }
+
+            if (respuestaRoles.error) {
+                console.error('Error cargando roles:', respuestaRoles.error);
+                setRolesEmpresaDueno([]);
+            } else {
+                setRolesEmpresaDueno((respuestaRoles.data || []) as RolEmpresaDueno[]);
+            }
+
+            setUsuariosDueno((respuestaUsuarios.data || []) as UsuarioDueno[]);
+
+            console.log('Usuarios cargados:', respuestaUsuarios.data);
+            console.log('Roles cargados:', respuestaRoles.data);
+        } catch (error) {
+            console.error('Error general cargando usuarios del Panel Dueño:', error);
+            setUsuariosDueno([]);
+        } finally {
+            setCargandoUsuariosDueno(false);
+        }
+    };
+    const cambiarRolUsuarioDueno = async (
+        usuarioEmpresaId: string,
+        rolId: string
+    ) => {
+        try {
+            setGuardandoGestionUsuario(true);
+
+            console.log('Cambiando rol de usuario:', {
+                usuarioEmpresaId,
+                rolId,
+            });
+
+            const { data, error } = await supabase.rpc('dueno_cambiar_rol_usuario_empresa', {
+                p_usuario_empresa_id: usuarioEmpresaId,
+                p_rol_id: rolId,
+            });
+
+            if (error) {
+                console.error('Error Supabase cambiando rol:', error);
+
+                mostrarModalSistema(
+                    'advertencia',
+                    'No se pudo cambiar el rol',
+                    error.message || 'El sistema bloqueó este cambio por seguridad.',
+                    'Revisa el plan de la empresa y los límites permitidos para administrador, soporte y técnico.'
+                );
+
+                return;
+            }
+
+            console.log('Rol cambiado correctamente:', data);
+
+            await cargarUsuariosDueno();
+            setUsuarioGestionSeleccionado(null);
+
+            mostrarModalSistema(
+                'exito',
+                'Rol cambiado correctamente',
+                'El usuario fue actualizado y el cambio quedó guardado en FleetVision.'
+            );
+        } catch (error: any) {
+            console.error('Error general cambiando rol:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un problema al intentar cambiar el rol.',
+                'Intenta nuevamente o revisa la consola del navegador.'
+            );
+        } finally {
+            setGuardandoGestionUsuario(false);
+        }
+    };
+    const cambiarEmpresaUsuarioDueno = async () => {
+        if (!usuarioGestionSeleccionado) {
+            mostrarModalSistema(
+                'advertencia',
+                'Usuario no seleccionado',
+                'No hay un usuario seleccionado para cambiar de empresa.',
+                'Cierra el modal y vuelve a abrir Gestionar.'
+            );
+            return;
+        }
+
+        const empresaDestino =
+            empresaDestinoUsuario || usuarioGestionSeleccionado.empresa_id;
+
+        const rolDestino =
+            rolDestinoUsuario || usuarioGestionSeleccionado.rol_nombre || 'Administrador';
+
+        if (!empresaDestino) {
+            mostrarModalSistema(
+                'advertencia',
+                'Selecciona una empresa',
+                'Debes elegir la empresa destino antes de guardar.',
+                'El usuario quedará vinculado a esa empresa.'
+            );
+            return;
+        }
+
+        try {
+            setGuardandoCambioEmpresaUsuario(true);
+
+            const { data, error } = await supabase.rpc('dueno_cambiar_empresa_usuario', {
+                p_usuario_empresa_id: usuarioGestionSeleccionado.usuario_empresa_id || null,
+                p_usuario_id: usuarioGestionSeleccionado.usuario_id,
+                p_empresa_id_destino: empresaDestino,
+                p_rol_nombre: rolDestino,
+            });
+
+            if (error) {
+                console.error('Error cambiando empresa del usuario:', error);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo cambiar la empresa',
+                    error.message || 'Supabase rechazó el cambio de empresa.',
+                    error.details || 'Revisa la función dueno_cambiar_empresa_usuario.'
+                );
+
+                return;
+            }
+
+            await cargarUsuariosDueno();
+            await cargarEmpresasDueno();
+
+            setUsuarioGestionSeleccionado(null);
+            setEmpresaDestinoUsuario('');
+            setRolDestinoUsuario('Administrador');
+
+            mostrarModalSistema(
+                'exito',
+                'Usuario movido correctamente',
+                data?.mensaje || 'El usuario fue cambiado de empresa.',
+                `Nueva empresa: ${data?.empresa || 'actualizada'} · Rol: ${data?.rol || rolDestino}`
+            );
+        } catch (error: any) {
+            console.error('Error general cambiando empresa del usuario:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un problema al cambiar la empresa del usuario.',
+                'Revisa la consola del navegador.'
+            );
+        } finally {
+            setGuardandoCambioEmpresaUsuario(false);
+        }
+    };
+
+    const abrirModalEditarUsuario = (usuario: UsuarioDueno) => {
+        setFormEditarUsuario({
+            usuario_id: usuario.usuario_id || '',
+            auth_id: usuario.auth_id || '',
+            username: usuario.username || '',
+            apellido: usuario.apellido || '',
+            email: '',
+            activo: usuario.usuario_activo ?? true,
+        });
+
+        setModalEditarUsuarioAbierto(true);
+    };
+    const guardarEditarUsuario = async () => {
+        const username = usernameEditarUsuarioRef.current.trim();
+        const apellido = apellidoEditarUsuarioRef.current.trim();
+        const email = emailEditarUsuarioRef.current.trim().toLowerCase();
+
+        if (!formEditarUsuario.usuario_id) {
+            mostrarModalSistema(
+                'advertencia',
+                'Usuario no válido',
+                'No se encontró el ID del usuario que quieres editar.',
+                'Cierra el modal, vuelve a abrir Gestionar e intenta nuevamente.'
+            );
+            return;
+        }
+
+        if (!formEditarUsuario.auth_id) {
+            mostrarModalSistema(
+                'advertencia',
+                'Auth ID no encontrado',
+                'No se encontró el auth_id del usuario.',
+                'Este dato es necesario para modificar el correo en Supabase Auth.'
+            );
+            return;
+        }
+
+        if (!username) {
+            mostrarModalSistema(
+                'advertencia',
+                'Falta el nombre de usuario',
+                'Debes ingresar un nombre de usuario.',
+                'Ejemplo: tecnico1, soporte_avalos, juan.'
+            );
+            return;
+        }
+
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            mostrarModalSistema(
+                'advertencia',
+                'Correo inválido',
+                'El correo ingresado no tiene un formato válido.',
+                'Ejemplo válido: usuario@empresa.cl'
+            );
+            return;
+        }
+
+        try {
+            setGuardandoEditarUsuario(true);
+
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+            if (sessionError || !sessionData.session?.access_token) {
+                mostrarModalSistema(
+                    'error',
+                    'Sesión no válida',
+                    'No se pudo obtener tu sesión actual.',
+                    'Cierra sesión, vuelve a entrar e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const respuesta = await fetch('/api/admin/editar-usuario', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionData.session.access_token}`,
+                },
+                body: JSON.stringify({
+                    usuario_id: formEditarUsuario.usuario_id,
+                    auth_id: formEditarUsuario.auth_id,
+                    username,
+                    apellido,
+                    email,
+                    activo: formEditarUsuario.activo,
+                }),
+            });
+
+            const resultado = await respuesta.json();
+
+            if (!respuesta.ok || !resultado.ok) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'No se pudo editar el usuario',
+                    resultado.error || 'La ruta segura rechazó la edición del usuario.',
+                    resultado.detalle || 'Revisa si el username ya existe o si el correo ya está registrado.'
+                );
+                return;
+            }
+
+            await cargarUsuariosDueno();
+
+            usernameEditarUsuarioRef.current = '';
+            apellidoEditarUsuarioRef.current = '';
+            emailEditarUsuarioRef.current = '';
+
+            setModalEditarUsuarioAbierto(false);
+            setUsuarioGestionSeleccionado(null);
+
+            setFormEditarUsuario({
+                usuario_id: '',
+                auth_id: '',
+                username: '',
+                apellido: '',
+                email: '',
+                activo: true,
+            });
+
+            mostrarModalSistema(
+                'exito',
+                'Usuario actualizado correctamente',
+                resultado.mensaje || 'Los datos del usuario fueron actualizados.',
+                'El cambio ya aparece en el módulo Usuarios del Panel Dueño.'
+            );
+        } catch (error: any) {
+            console.error('Error general editando usuario:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un problema al editar el usuario.',
+                'Revisa la consola del navegador y la terminal de Next.js.'
+            );
+        } finally {
+            setGuardandoEditarUsuario(false);
+        }
+    };
+    const abrirModalBorrarUsuario = () => {
+        if (!usuarioGestionSeleccionado) {
+            mostrarModalSistema(
+                'advertencia',
+                'Usuario no seleccionado',
+                'No hay un usuario seleccionado para borrar.',
+                'Cierra el modal y vuelve a abrir Gestionar.'
+            );
+            return;
+        }
+
+        confirmacionBorrarUsuarioRef.current = '';
+        setModoConfirmacionDefinitiva(false);
+        setErrorModalBorrarUsuario('');
+        setModalBorrarUsuarioAbierto(true);
+    };
+
+    const ejecutarBorradoUsuarioSeguro = async (confirmacion = '') => {
+        if (!usuarioGestionSeleccionado) {
+            mostrarModalSistema(
+                'advertencia',
+                'Usuario no seleccionado',
+                'No hay un usuario seleccionado para borrar.',
+                'Cierra el modal y vuelve a abrir Gestionar.'
+            );
+            return;
+        }
+
+        try {
+            setBorrandoUsuario(true);
+            setErrorModalBorrarUsuario('');
+
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+            if (sessionError || !sessionData.session?.access_token) {
+                setModalBorrarUsuarioAbierto(false);
+
+                mostrarModalSistema(
+                    'error',
+                    'Sesión no válida',
+                    'No se pudo obtener tu sesión actual.',
+                    'Cierra sesión, vuelve a entrar e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const respuesta = await fetch('/api/admin/borrar-usuario', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionData.session.access_token}`,
+                },
+                body: JSON.stringify({
+                    usuario_id: usuarioGestionSeleccionado.usuario_id,
+                    auth_id: usuarioGestionSeleccionado.auth_id,
+                    empresa_id: usuarioGestionSeleccionado.empresa_id,
+                    usuario_empresa_id: usuarioGestionSeleccionado.usuario_empresa_id,
+                    confirmacion,
+                }),
+            });
+
+            const resultado = await respuesta.json();
+
+            if (!respuesta.ok || !resultado.ok) {
+                setModalBorrarUsuarioAbierto(false);
+
+                mostrarModalSistema(
+                    'advertencia',
+                    'No se pudo revisar el usuario',
+                    resultado.error || 'La ruta segura rechazó la revisión.',
+                    resultado.detalle || 'Revisa la consola o la terminal de Next.js.'
+                );
+                return;
+            }
+
+            if (resultado.accion === 'requiere_confirmacion_definitiva') {
+                confirmacionBorrarUsuarioRef.current = '';
+                setModoConfirmacionDefinitiva(true);
+                setErrorModalBorrarUsuario('');
+                return;
+            }
+
+            await cargarUsuariosDueno();
+            await cargarEmpresasDueno();
+
+            setModalBorrarUsuarioAbierto(false);
+            setUsuarioGestionSeleccionado(null);
+
+            if (resultado.accion === 'borrado_definitivo') {
+                mostrarModalSistema(
+                    'exito',
+                    'Usuario eliminado definitivamente',
+                    resultado.mensaje || 'El usuario fue eliminado correctamente.',
+                    resultado.detalle || 'Se eliminó de la empresa, de public.usuarios y de Supabase Auth.'
+                );
+                return;
+            }
+
+            if (resultado.accion === 'vinculo_eliminado') {
+                mostrarModalSistema(
+                    'info',
+                    'Vínculo eliminado',
+                    resultado.mensaje || 'El usuario fue desvinculado de esta empresa.',
+                    resultado.detalle || 'No se eliminó porque todavía pertenece a otra empresa.'
+                );
+                return;
+            }
+
+            if (resultado.accion === 'desactivado_por_historial') {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Usuario desactivado por trazabilidad',
+                    resultado.mensaje || 'El usuario tiene historial y no se eliminó.',
+                    resultado.detalle || 'Se dejó inactivo para conservar trazabilidad.'
+                );
+                return;
+            }
+
+            if (resultado.accion === 'desactivado_por_revision_insegura') {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Usuario desactivado por seguridad',
+                    resultado.mensaje || 'No se pudo revisar toda la trazabilidad.',
+                    resultado.detalle || 'Se dejó inactivo para evitar pérdida de historial.'
+                );
+                return;
+            }
+
+            mostrarModalSistema(
+                'exito',
+                'Acción completada',
+                resultado.mensaje || 'La acción sobre el usuario fue completada.',
+                resultado.detalle || ''
+            );
+        } catch (error: any) {
+            console.error('Error general borrando usuario:', error);
+
+            setModalBorrarUsuarioAbierto(false);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un problema al borrar el usuario.',
+                'Revisa la consola del navegador y la terminal de Next.js.'
+            );
+        } finally {
+            setBorrandoUsuario(false);
+        }
+    };
+
+    const confirmarBorradoDefinitivo = async () => {
+        const texto = confirmacionBorrarUsuarioRef.current.trim();
+
+        if (texto !== 'BORRAR DEFINITIVO') {
+            setErrorModalBorrarUsuario(
+                'Debes escribir exactamente BORRAR DEFINITIVO para continuar.'
+            );
+            return;
+        }
+
+        await ejecutarBorradoUsuarioSeguro('BORRAR DEFINITIVO');
+    };
+    const abrirModalVincularUsuario = async () => {
+        setMostrarModalVincularUsuario(true);
+        setUsuarioSeleccionadoParaVincular(null);
+        setEmpresaSeleccionadaParaVincular('');
+        setRolSeleccionadoParaVincular('');
+        setUsuariosParaVincular([]);
+        busquedaUsuarioVincularRef.current = '';
+
+        try {
+            if (empresasDueno.length === 0) {
+                await cargarEmpresasDueno();
+            }
+
+            if (rolesEmpresaDueno.length === 0 || usuariosDueno.length === 0) {
+                await cargarUsuariosDueno();
+            }
+        } catch (error) {
+            console.error('Error preparando modal de vincular usuario:', error);
+
+            mostrarModalSistema(
+                'error',
+                'No se pudieron cargar los datos',
+                'No fue posible cargar empresas o roles para vincular el usuario.',
+                'Intenta presionar Actualizar usuarios o revisa la consola del navegador.'
+            );
+        }
+    };
+    const buscarUsuariosParaVincular = async () => {
+        try {
+            setBuscandoUsuariosVincular(true);
+
+            const busqueda = busquedaUsuarioVincularRef.current.trim();
+
+            const { data, error } = await supabase.rpc('dueno_buscar_usuarios_para_vincular', {
+                p_busqueda: busqueda,
+            });
+
+            if (error) {
+                console.error('Error buscando usuarios para vincular:', error);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudieron buscar usuarios',
+                    error.message || 'Supabase rechazó la búsqueda de usuarios.',
+                    'Revisa que la función dueno_buscar_usuarios_para_vincular exista y que tengas permisos de dueño.'
+                );
+
+                setUsuariosParaVincular([]);
+                return;
+            }
+
+            setUsuariosParaVincular((data || []) as UsuarioParaVincular[]);
+        } catch (error: any) {
+            console.error('Error general buscando usuarios:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un error al buscar usuarios.',
+                'Intenta nuevamente o revisa la consola del navegador.'
+            );
+
+            setUsuariosParaVincular([]);
+        } finally {
+            setBuscandoUsuariosVincular(false);
+        }
+    };
+
+    const vincularUsuarioEmpresaDueno = async () => {
+        if (!usuarioSeleccionadoParaVincular) {
+            mostrarModalSistema(
+                'advertencia',
+                'Selecciona un usuario',
+                'Debes elegir un usuario de la lista antes de vincularlo.',
+                'Primero busca por username, apellido o ID y luego selecciona un usuario.'
+            );
+            return;
+        }
+
+        if (!empresaSeleccionadaParaVincular) {
+            mostrarModalSistema(
+                'advertencia',
+                'Selecciona una empresa',
+                'Debes elegir la empresa donde quieres vincular este usuario.',
+                'El usuario quedará asociado a esa empresa.'
+            );
+            return;
+        }
+
+        if (!rolSeleccionadoParaVincular) {
+            mostrarModalSistema(
+                'advertencia',
+                'Selecciona un rol',
+                'Debes elegir el rol que tendrá este usuario en la empresa.',
+                'El sistema validará automáticamente si el plan permite ese rol.'
+            );
+            return;
+        }
+
+        try {
+            setGuardandoVincularUsuario(true);
+
+            const { data, error } = await supabase.rpc('dueno_vincular_usuario_empresa', {
+                p_usuario_id: usuarioSeleccionadoParaVincular.usuario_id,
+                p_empresa_id: empresaSeleccionadaParaVincular,
+                p_rol_id: rolSeleccionadoParaVincular,
+            });
+
+            if (error) {
+                console.error('Error vinculando usuario:', error);
+
+                mostrarModalSistema(
+                    'advertencia',
+                    'No se pudo vincular el usuario',
+                    error.message || 'El sistema bloqueó esta vinculación.',
+                    'Revisa si el plan de la empresa permite más usuarios o más roles de ese tipo.'
+                );
+
+                return;
+            }
+
+            console.log('Usuario vinculado correctamente:', data);
+
+            await cargarUsuariosDueno();
+            await cargarEmpresasDueno();
+
+            setMostrarModalVincularUsuario(false);
+            setUsuarioSeleccionadoParaVincular(null);
+            setEmpresaSeleccionadaParaVincular('');
+            setRolSeleccionadoParaVincular('');
+            setUsuariosParaVincular([]);
+            busquedaUsuarioVincularRef.current = '';
+
+            mostrarModalSistema(
+                'exito',
+                'Usuario vinculado correctamente',
+                'El usuario fue asociado a la empresa y el rol quedó guardado.',
+                'Ya aparecerá en el módulo Usuarios del Panel Dueño.'
+            );
+        } catch (error: any) {
+            console.error('Error general vinculando usuario:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un error al vincular el usuario.',
+                'Intenta nuevamente o revisa la consola del navegador.'
+            );
+        } finally {
+            setGuardandoVincularUsuario(false);
+        }
+    };
+    const abrirModalCrearUsuario = async () => {
+        setMostrarModalCrearUsuario(true);
+        setEmpresaCrearUsuario('');
+        setRolCrearUsuario('');
+        setActivoCrearUsuario(true);
+
+        emailCrearUsuarioRef.current = '';
+        passwordCrearUsuarioRef.current = '';
+        usernameCrearUsuarioRef.current = '';
+        apellidoCrearUsuarioRef.current = '';
+
+        try {
+            if (empresasDueno.length === 0) {
+                await cargarEmpresasDueno();
+            }
+
+            if (rolesEmpresaDueno.length === 0) {
+                await cargarUsuariosDueno();
+            }
+        } catch (error) {
+            console.error('Error preparando modal crear usuario:', error);
+
+            mostrarModalSistema(
+                'error',
+                'No se pudieron cargar los datos',
+                'No fue posible cargar empresas o roles para crear el usuario.',
+                'Intenta presionar Actualizar usuarios o revisa la consola del navegador.'
+            );
+        }
+    };
+
+    const crearUsuarioNuevoDueno = async () => {
+        const email = emailCrearUsuarioRef.current.trim().toLowerCase();
+        const password = passwordCrearUsuarioRef.current.trim();
+        const username = usernameCrearUsuarioRef.current.trim();
+        const apellido = apellidoCrearUsuarioRef.current.trim();
+
+        if (!email) {
+            mostrarModalSistema(
+                'advertencia',
+                'Falta el correo',
+                'Debes ingresar el correo del nuevo usuario.',
+                'Este correo será usado para iniciar sesión.'
+            );
+            return;
+        }
+
+        if (!password || password.length < 6) {
+            mostrarModalSistema(
+                'advertencia',
+                'Contraseña inválida',
+                'La contraseña debe tener al menos 6 caracteres.',
+                'Usa una contraseña temporal y luego el usuario podrá cambiarla.'
+            );
+            return;
+        }
+
+        if (!username) {
+            mostrarModalSistema(
+                'advertencia',
+                'Falta el nombre de usuario',
+                'Debes ingresar el nombre del usuario.',
+                'Ejemplo: juan, tecnico1, soporte_avalos.'
+            );
+            return;
+        }
+
+        if (!empresaCrearUsuario) {
+            mostrarModalSistema(
+                'advertencia',
+                'Selecciona una empresa',
+                'Debes elegir la empresa donde quedará vinculado el usuario.',
+                'El usuario quedará asociado a esa empresa desde su creación.'
+            );
+            return;
+        }
+
+        if (!rolCrearUsuario) {
+            mostrarModalSistema(
+                'advertencia',
+                'Selecciona un rol',
+                'Debes elegir el rol inicial del usuario.',
+                'El sistema validará automáticamente los límites del plan.'
+            );
+            return;
+        }
+
+        try {
+            setGuardandoCrearUsuario(true);
+
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+            if (sessionError || !sessionData.session?.access_token) {
+                mostrarModalSistema(
+                    'error',
+                    'Sesión no válida',
+                    'No se pudo obtener tu sesión actual.',
+                    'Cierra sesión, vuelve a entrar e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const rolSeleccionado = rolesEmpresaDueno.find(
+                (rol) => rol.rol_id === rolCrearUsuario
+            );
+
+            const respuesta = await fetch('/api/admin/crear-usuario', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${sessionData.session.access_token}`,
+                },
+                body: JSON.stringify({
+                    email,
+                    password,
+                    username,
+                    apellido,
+                    rol_texto: rolSeleccionado?.rol_codigo || 'usuario',
+                    empresa_id: empresaCrearUsuario,
+                    rol_id: rolCrearUsuario,
+                    activo: activoCrearUsuario,
+                }),
+            });
+
+            const resultado = await respuesta.json();
+
+            if (!respuesta.ok || !resultado.ok) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'No se pudo crear el usuario',
+                    resultado.error || 'La ruta segura rechazó la creación del usuario.',
+                    resultado.detalle || 'Revisa si el correo ya existe o si el plan permite ese rol.'
+                );
+                return;
+            }
+
+            await cargarUsuariosDueno();
+            await cargarEmpresasDueno();
+
+            emailCrearUsuarioRef.current = '';
+            passwordCrearUsuarioRef.current = '';
+            usernameCrearUsuarioRef.current = '';
+            apellidoCrearUsuarioRef.current = '';
+
+            setEmpresaCrearUsuario('');
+            setRolCrearUsuario('');
+            setActivoCrearUsuario(true);
+            setMostrarModalCrearUsuario(false);
+
+            mostrarModalSistema(
+                'exito',
+                'Usuario creado correctamente',
+                `El usuario ${username} fue creado y vinculado a la empresa.`,
+                'Ya puede iniciar sesión con el correo y contraseña que definiste.'
+            );
+        } catch (error: any) {
+            console.error('Error general creando usuario nuevo:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'Ocurrió un problema al crear el usuario.',
+                'Revisa la consola del navegador y la terminal de Next.js.'
+            );
+        } finally {
+            setGuardandoCrearUsuario(false);
+        }
+    };
+
+    const fijarFechaTrialEmpresaDueno = async (empresaId: string) => {
+        const fechaTexto = prompt('Ingresa la fecha exacta de término del trial. Ejemplo: 2026-07-01');
+
+        if (!fechaTexto) return;
+
+        const fecha = new Date(`${fechaTexto}T23:59:59`);
+
+        if (Number.isNaN(fecha.getTime())) {
+            alert('Fecha inválida. Usa formato YYYY-MM-DD, por ejemplo: 2026-07-01.');
+            return;
+        }
+
+        try {
+            setGuardandoGestionEmpresa(true);
+
+            const { error } = await supabase.rpc('dueno_fijar_trial_empresa', {
+                p_empresa_id: empresaId,
+                p_trial_ends_at: fecha.toISOString(),
+            });
+
+            if (error) throw error;
+
+            await cargarEmpresasDueno();
+            setEmpresaGestionSeleccionada(null);
+
+            alert(`Trial fijado hasta ${fecha.toLocaleDateString('es-CL')}.`);
+        } catch (error) {
+            console.error('Error fijando fecha de trial:', error);
+            alert('No se pudo fijar la fecha del trial.');
+        } finally {
+            setGuardandoGestionEmpresa(false);
+        }
+    };
 
     const cargarEmpresaUsuario = async () => {
         try {
             console.log('Cargando empresa para el usuario...');
+
             const { data, error } = await supabase
                 .from('empresas')
                 .select('*')
@@ -229,14 +2162,17 @@ export default function DashboardCompleto() {
             if (data && data.length > 0) {
                 const empresaId = sessionStorage.getItem('empresa_id');
                 let empresa = null;
+
                 if (empresaId) {
                     empresa = data.find(e => e.id === empresaId);
                 }
+
                 if (!empresa) {
                     empresa = data[0];
                     sessionStorage.setItem('empresa_id', empresa.id);
                     sessionStorage.setItem('empresa_nombre', empresa.nombre);
                 }
+
                 setEmpresaActual(empresa);
                 console.log('Empresa cargada:', empresa.nombre);
             } else {
@@ -250,6 +2186,7 @@ export default function DashboardCompleto() {
     const cargarDatosEmpresa = async (empresaId: string) => {
         try {
             console.log(`Cargando datos para empresa ID: ${empresaId}`);
+
             if (!empresaId || empresaId.trim() === '') {
                 console.error('ID de empresa vacío o inválido');
                 return;
@@ -276,7 +2213,9 @@ export default function DashboardCompleto() {
                     ubicación: activo.ubicacion || 'Sin ubicación',
                     patente: activo.patente || 'SIN PATENTE',
                     tiempoActivo: activo.tiempo_activo || 100,
-                    próximoMantenimiento: new Date(activo.proximo_mantenimiento || Date.now() + 30 * 24 * 60 * 60 * 1000),
+                    próximoMantenimiento: new Date(
+                        activo.proximo_mantenimiento || Date.now() + 30 * 24 * 60 * 60 * 1000
+                    ),
                     kilometraje: activo.kilometraje,
                     alertasActivas: activo.alertas_activas,
                     marca: activo.marca,
@@ -284,6 +2223,7 @@ export default function DashboardCompleto() {
                     año: activo.año || new Date().getFullYear(),
                     empresa_id: activo.empresa_id
                 }));
+
                 setActivos(activosTransformados);
                 actualizarMetricasActivos(activosTransformados);
             }
@@ -293,7 +2233,7 @@ export default function DashboardCompleto() {
                     .from('ordenes_trabajo')
                     .select('*')
                     .eq('empresa_id', empresaId)
-                    .order('created_at', { ascending: false });
+                    .order('fecha_creacion', { ascending: false });
 
                 if (ordenesError) {
                     console.log('Error cargando órdenes:', ordenesError);
@@ -301,19 +2241,20 @@ export default function DashboardCompleto() {
                 } else if (ordenesData) {
                     const ordenesTransformadas: OrdenTrabajo[] = ordenesData.map((orden: any) => ({
                         id: orden.id,
-                        número: orden.numero || `OT-${orden.id.substring(0, 8)}`,
+                        número: orden.numero_ot || orden.numero || `OT-${orden.id.substring(0, 8)}`,
                         descripción: orden.descripcion,
                         estado: orden.estado || 'creada',
                         prioridad: orden.prioridad || 'media',
-                        fechaCreación: new Date(orden.created_at),
-                        fechaLímite: new Date(orden.fecha_limite),
+                        fechaCreación: new Date(orden.fecha_creacion || orden.created_at || Date.now()),
+                        fechaLímite: new Date(orden.fecha_limite || Date.now()),
                         asignadoA: orden.asignado_a || 'Sin asignar',
                         tipo: orden.tipo || 'Preventivo',
-                        activo: orden.activo,
+                        activo: orden.activo || orden.activo_id || 'Sin activo',
                         costoEstimado: orden.costo_estimado || 0,
                         costoReal: orden.costo_real || 0,
                         empresa_id: orden.empresa_id
                     }));
+
                     setÓrdenesTrabajo(ordenesTransformadas);
                 }
             } catch (ordenesError) {
@@ -324,7 +2265,6 @@ export default function DashboardCompleto() {
             console.error(`Error general cargando datos para empresa ${empresaId}:`, error);
         }
     };
-
     // =============================================================
     // 🟠 SECCIÓN NARANJA – Funciones de gestión de activos
     // =============================================================
@@ -479,6 +2419,7 @@ export default function DashboardCompleto() {
             alert('No hay empresa seleccionada');
             return;
         }
+
         try {
             const nuevaOrdenData = {
                 descripcion: 'Nueva orden de trabajo',
@@ -493,11 +2434,46 @@ export default function DashboardCompleto() {
                 empresa_id: empresaActual.id,
                 created_at: new Date().toISOString()
             };
+
+            if (empresaModoDemo) {
+                const demoId =
+                    typeof crypto !== 'undefined' && crypto.randomUUID
+                        ? crypto.randomUUID()
+                        : `demo-${Date.now()}`;
+
+                const nuevaOrdenDemo: OrdenTrabajo = {
+                    id: demoId,
+                    número: `DEMO-${demoId.substring(0, 8)}`,
+                    descripción: 'Nueva orden de trabajo demo',
+                    estado: 'creada',
+                    prioridad: 'media',
+                    fechaCreación: new Date(),
+                    fechaLímite: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                    asignadoA: datosUsuario?.nombre || 'Usuario demo',
+                    tipo: 'Preventivo',
+                    activo: 'Activo de prueba',
+                    costoEstimado: 0,
+                    costoReal: 0,
+                    empresa_id: empresaActual.id
+                };
+
+                setÓrdenesTrabajo(prev => [nuevaOrdenDemo, ...prev]);
+
+                mostrarAccionDemo(
+                    'OT simulada correctamente',
+                    'La orden de trabajo fue creada visualmente para la demostración, pero no se guardó en Supabase.'
+                );
+
+                return;
+            }
+
             const { data, error } = await supabase
                 .from('ordenes_trabajo')
                 .insert([nuevaOrdenData])
                 .select();
+
             if (error) throw error;
+
             if (data && data[0]) {
                 const nuevaOrden: OrdenTrabajo = {
                     id: data[0].id,
@@ -514,11 +2490,30 @@ export default function DashboardCompleto() {
                     costoReal: 0,
                     empresa_id: empresaActual.id
                 };
+
                 setÓrdenesTrabajo(prev => [nuevaOrden, ...prev]);
             }
         } catch (error) {
             console.error('Error creando orden:', error);
+
+            mostrarModalSistema(
+                'error',
+                'No se pudo crear la orden',
+                'Ocurrió un error al crear la orden de trabajo.',
+                error instanceof Error ? error.message : 'Error desconocido'
+            );
         }
+    };
+
+    const manejarCrearNuevaOrden = () => {
+        if (empresaModoDemo) {
+            mostrarAccionDemo(
+                'Modo demo activado',
+                'Puedes probar el flujo de órdenes de trabajo. Al crear la OT, será simulada y no quedará registrada en Supabase.'
+            );
+        }
+
+        crearNuevaOrden();
     };
 
     const obtenerColorEstado = (estado: string) => {
@@ -564,31 +2559,97 @@ export default function DashboardCompleto() {
 
     /** Barra lateral de navegación con partículas y borde neón */
     const BarraLateral = () => {
+        const tieneFeatureSidebar = (feature: string) => {
+            return featuresPlan.some(
+                (item) => item.feature === feature && item.habilitado === true
+            );
+        };
+
         const secciones = [
-            { id: 'dashboard', icono: '🏠', etiqueta: 'Dashboard Principal', descripción: 'Vista general del sistema' },
-            { id: 'activos', icono: '🚚', etiqueta: 'Gestión de Activos', descripción: 'Vehículos y equipos' },
-            { id: 'ordenes', icono: '📋', etiqueta: 'Órdenes de Trabajo', descripción: 'Crear y gestionar OT' },
-            { id: 'mantenimiento', icono: '🔧', etiqueta: 'Plan Mantenimiento', descripción: 'Programación preventiva' },
-            { id: 'inventario', icono: '📦', etiqueta: 'Inventario', descripción: 'Repuestos y materiales' },
-            { id: 'personal', icono: '👥', etiqueta: 'Personal', descripción: 'Equipo de trabajo' },
-            { id: 'reportes', icono: '📊', etiqueta: 'Reportes', descripción: 'Análisis y estadísticas' },
-            { id: 'configuracion', icono: '⚙️', etiqueta: 'Configuración', descripción: 'Ajustes del sistema' },
+            {
+                id: 'dashboard',
+                feature: 'dashboard',
+                icono: '🏠',
+                etiqueta: 'Dashboard Principal',
+                descripción: 'Vista general del sistema'
+            },
+            {
+                id: 'activos',
+                feature: 'activos',
+                icono: '🚚',
+                etiqueta: 'Gestión de Activos',
+                descripción: 'Vehículos y equipos'
+            },
+            {
+                id: 'ordenes',
+                feature: 'ordenes_trabajo',
+                icono: '📋',
+                etiqueta: 'Órdenes de Trabajo',
+                descripción: 'Crear y gestionar OT'
+            },
+            {
+                id: 'mantenimiento',
+                feature: 'mantenimiento_basico',
+                icono: '🔧',
+                etiqueta: 'Plan Mantenimiento',
+                descripción: 'Programación preventiva'
+            },
+            {
+                id: 'inventario',
+                feature: 'inventario_basico',
+                icono: '📦',
+                etiqueta: 'Inventario',
+                descripción: 'Repuestos y materiales'
+            },
+            {
+                id: 'personal',
+                feature: 'usuarios',
+                icono: '👥',
+                etiqueta: 'Personal',
+                descripción: 'Equipo de trabajo'
+            },
+            {
+                id: 'reportes',
+                feature: 'reportes_demo',
+                icono: '📊',
+                etiqueta: 'Reportes',
+                descripción: 'Análisis y estadísticas'
+            },
+            {
+                id: 'configuracion',
+                feature: 'configuracion',
+                icono: '⚙️',
+                etiqueta: 'Configuración',
+                descripción: 'Ajustes del sistema'
+            },
+            {
+                id: 'desarrollador',
+                feature: 'admin_global',
+                soloAdminGlobal: true,
+                icono: '🛡️',
+                etiqueta: 'Panel Dueño',
+                descripción: 'Empresas, planes y usuarios'
+            },
         ];
 
-        // =============================================================
-        // 🟣 GENERACIÓN DE PARTÍCULAS – Puedes ajustar:
-        // - Cantidad: cambiar el 30 en el bucle for
-        // - Tamaños: modificar el array 'tamaños'
-        // - Velocidad: ajustar el animationDelay (0-10s)
-        // =============================================================
+        const seccionesPermitidas = secciones.filter((sección) => {
+            if ('soloAdminGlobal' in sección && sección.soloAdminGlobal) {
+                return esAdminGlobal;
+            }
+
+            return tieneFeatureSidebar(sección.feature);
+        });
+
         const generarParticulas = () => {
             const particulas = [];
             const tamaños = ['particula-xs', 'particula-sm', 'particula-md', 'particula-lg', 'particula-xl'];
-            for (let i = 0; i < 35; i++) { // Aumentado a 35 partículas para más efecto
+
+            for (let i = 0; i < 35; i++) {
                 const size = tamaños[Math.floor(Math.random() * tamaños.length)];
                 const top = Math.random() * 100;
                 const left = Math.random() * 100;
                 const delay = Math.random() * 10;
+
                 particulas.push(
                     <div
                         key={i}
@@ -601,6 +2662,7 @@ export default function DashboardCompleto() {
                     />
                 );
             }
+
             return particulas;
         };
 
@@ -609,9 +2671,7 @@ export default function DashboardCompleto() {
                 className={`fixed left-0 top-0 h-screen bg-gradient-to-b from-[#0a0e2a] to-[#1a1b3a] border-r border-cyan-500/20 z-20 transition-all duration-500 ${barraLateralContraída ? 'w-20' : 'w-64'} shadow-xl sidebar-neon barra-lateral ${efectosHabilitados ? 'efectos-activos' : 'efectos-off'}`}
                 style={{ zoom: "var(--zoom-sidebar)" } as CSSProperties}
             >
-                {/* ============================================================= */}
-                {/* PARTÍCULAS (pelotitas pequeñitas) */}
-                {/* ============================================================= */}
+                {/* PARTÍCULAS */}
                 <div className="particulas-container">
                     {generarParticulas()}
                 </div>
@@ -625,26 +2685,45 @@ export default function DashboardCompleto() {
                                         <span className="text-sm">F</span>
                                     </div>
                                 </div>
+
                                 <div>
-                                    <span className="text-lg font-bold text-white">Fleet<span className="text-cyan-400">Vision</span></span>
+                                    <span className="text-lg font-bold text-white">
+                                        Fleet<span className="text-cyan-400">Vision</span>
+                                    </span>
                                     <p className="text-[10px] text-slate-400">Gestión de Flotas</p>
                                 </div>
                             </div>
                         )}
+
                         {barraLateralContraída && (
                             <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-cyan-500 via-blue-500 to-[#0066ff] flex items-center justify-center text-white font-bold shadow-md shadow-cyan-500/30">
                                 <span className="text-sm">F</span>
                             </div>
                         )}
-                        <button onClick={() => setBarraLateralContraída(!barraLateralContraída)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" title={barraLateralContraída ? "Expandir" : "Contraer"}>
-                            <svg className={`w-5 h-5 text-cyan-400 transition-transform ${barraLateralContraída ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={barraLateralContraída ? "M13 5l7 7-7 7M5 5l7 7-7 7" : "M11 19l-7-7 7-7m8 14l-7-7 7-7"} />
+
+                        <button
+                            onClick={() => setBarraLateralContraída(!barraLateralContraída)}
+                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+                            title={barraLateralContraída ? "Expandir" : "Contraer"}
+                        >
+                            <svg
+                                className={`w-5 h-5 text-cyan-400 transition-transform ${barraLateralContraída ? 'rotate-180' : ''}`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d={barraLateralContraída ? "M13 5l7 7-7 7M5 5l7 7-7 7" : "M11 19l-7-7 7-7m8 14l-7-7 7-7"}
+                                />
                             </svg>
                         </button>
                     </div>
 
                     <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-                        {secciones.map((sección) => (
+                        {seccionesPermitidas.map((sección) => (
                             <button
                                 key={sección.id}
                                 onClick={() => setSecciónActiva(sección.id)}
@@ -655,6 +2734,7 @@ export default function DashboardCompleto() {
                                 title={barraLateralContraída ? sección.etiqueta : undefined}
                             >
                                 <span className="text-lg z-10">{sección.icono}</span>
+
                                 {!barraLateralContraída && (
                                     <div className="z-10 text-left">
                                         <span className="font-medium text-sm block">{sección.etiqueta}</span>
@@ -663,6 +2743,29 @@ export default function DashboardCompleto() {
                                 )}
                             </button>
                         ))}
+
+                        {!barraLateralContraída && (
+                            <div className={`mt-4 rounded-xl border p-3 ${esAdminGlobal
+                                ? 'border-purple-500/20 bg-purple-500/10'
+                                : 'border-amber-500/20 bg-amber-500/10'
+                                }`}>
+                                <p className={`text-xs font-bold ${esAdminGlobal ? 'text-purple-300' : 'text-amber-300'}`}>
+                                    {esAdminGlobal
+                                        ? `Modo ${rolGlobal?.nombre || 'Dueño'}`
+                                        : empresaModoDemo
+                                            ? '🧪 Modo Demo'
+                                            : 'Plan Gratis'}
+                                </p>
+                                <p className="text-[11px] text-slate-400 mt-1">
+                                    {esAdminGlobal
+                                        ? 'Tienes acceso al Panel Dueño de FleetVision.'
+                                        : empresaModoDemo
+                                            ? 'Ambiente de prueba comercial. Las acciones reales se bloquearán en modo demo.'
+                                            : 'Algunas funciones están bloqueadas por tu plan.'
+                                    }
+                                </p>
+                            </div>
+                        )}
                     </nav>
 
                     <div className={`p-4 border-t border-cyan-500/10 bg-slate-900/30 ${barraLateralContraída ? 'text-center' : ''}`}>
@@ -673,15 +2776,21 @@ export default function DashboardCompleto() {
                                         <span className="text-xs text-slate-400">Salud Sistema</span>
                                         <span className="text-xs font-bold text-emerald-400">98%</span>
                                     </div>
+
                                     <div className="h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full" style={{ width: '98%' }} />
+                                        <div
+                                            className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-full"
+                                            style={{ width: '98%' }}
+                                        />
                                     </div>
                                 </div>
+
                                 <div className="text-xs text-slate-400">
                                     <div className="flex items-center justify-between mb-1">
                                         <span>Vehículos Activos</span>
                                         <span className="text-cyan-400">{activos.length}/{activos.length}</span>
                                     </div>
+
                                     <div className="flex items-center justify-between">
                                         <span>Tiempo Activo</span>
                                         <span className="text-emerald-400">96.1%</span>
@@ -693,6 +2802,7 @@ export default function DashboardCompleto() {
                                 <div className="relative">
                                     <div className="h-2 w-2 rounded-full bg-emerald-500 mx-auto animate-pulse" />
                                 </div>
+
                                 <div className="text-xs text-cyan-400 font-bold">98%</div>
                             </div>
                         )}
@@ -1541,7 +3651,7 @@ export default function DashboardCompleto() {
                     <p className="text-sm text-cyan-400">Gestión de mantenimiento</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={crearNuevaOrden} className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
+                    <button onClick={manejarCrearNuevaOrden} className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
                         <span>+</span>
                         <span>Nueva OT</span>
                     </button>
@@ -1665,7 +3775,7 @@ export default function DashboardCompleto() {
                                     <p className="text-sm text-cyan-400">{totalÓrdenes === 0 ? 'No hay órdenes registradas' : `Total: ${totalÓrdenes} órdenes`}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <button onClick={crearNuevaOrden} className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
+                                    <button onClick={manejarCrearNuevaOrden} className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
                                         <span>+</span><span>Nueva OT</span>
                                     </button>
                                 </div>
@@ -1711,7 +3821,7 @@ export default function DashboardCompleto() {
                                     <div className="text-4xl mb-4 text-slate-600">📋</div>
                                     <h4 className="text-lg font-medium text-slate-400 mb-2">No hay órdenes de trabajo</h4>
                                     <p className="text-slate-500 text-sm mb-4">Crea tu primera orden de trabajo para comenzar</p>
-                                    <button onClick={crearNuevaOrden} className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2 mx-auto">
+                                    <button onClick={manejarCrearNuevaOrden} className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2 mx-auto">
                                         <span>+</span><span>Crear Primera OT</span>
                                     </button>
                                 </div>
@@ -2412,7 +4522,7 @@ export default function DashboardCompleto() {
                             </p>
 
                             <button
-                                onClick={crearNuevaOrden}
+                                onClick={manejarCrearNuevaOrden}
                                 className="mx-auto mt-6 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
                             >
                                 <span className="text-xl">➕</span>
@@ -2480,7 +4590,17 @@ export default function DashboardCompleto() {
                             </div>
 
                             <button
-                                onClick={crearNuevaOrden}
+                                onClick={() => {
+                                    if (empresaModoDemo) {
+                                        mostrarAccionDemo(
+                                            'Orden de trabajo simulada',
+                                            'En modo demo puedes revisar el flujo de órdenes de trabajo, pero no se guardará ninguna OT real en Supabase.'
+                                        );
+                                        return;
+                                    }
+
+                                    crearNuevaOrden();
+                                }}
                                 className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-4 text-sm font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
                             >
                                 <span className="text-xl">➕</span>
@@ -4503,6 +6623,4226 @@ export default function DashboardCompleto() {
         </div>
     );
 
+    /** Panel Dueño / Desarrollador */
+    const PanelDesarrollador = () => {
+        const modulosActivos = featuresPlan.filter((feature) => feature.habilitado).length;
+        const modulosBloqueados = featuresPlan.filter((feature) => !feature.habilitado).length;
+
+        const formatearFecha = (fecha: string | null) => {
+            if (!fecha) return 'Sin fecha';
+
+            try {
+                return new Date(fecha).toLocaleDateString('es-CL', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                });
+            } catch {
+                return 'Fecha inválida';
+            }
+        };
+
+        const obtenerEstadoSuscripcion = (estado: string | null) => {
+            switch (estado) {
+                case 'trial':
+                    return {
+                        texto: 'Trial',
+                        clase: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+                    };
+                case 'activa':
+                    return {
+                        texto: 'Activa',
+                        clase: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                    };
+                case 'vencida':
+                    return {
+                        texto: 'Vencida',
+                        clase: 'bg-red-500/20 text-red-300 border-red-500/30',
+                    };
+                case 'cancelada':
+                    return {
+                        texto: 'Cancelada',
+                        clase: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+                    };
+                case 'suspendida':
+                    return {
+                        texto: 'Suspendida',
+                        clase: 'bg-red-500/20 text-red-300 border-red-500/30',
+                    };
+                default:
+                    return {
+                        texto: 'Sin suscripción',
+                        clase: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+                    };
+            }
+        };
+
+
+        const obtenerLimiteRolPorPlan = (planCodigo: string | null, rolCodigo: string) => {
+            const plan = (planCodigo || 'gratis').toLowerCase();
+            const rol = rolCodigo.toLowerCase();
+
+            const planDesdeSupabase = planesSaas.find(
+                (item) => item.codigo.toLowerCase() === plan
+            );
+
+            if (planDesdeSupabase) {
+                if (rol === 'administrador') return planDesdeSupabase.limite_administrador;
+                if (rol === 'soporte') return planDesdeSupabase.limite_soporte;
+                if (rol === 'tecnico') return planDesdeSupabase.limite_tecnico;
+
+                return 0;
+            }
+
+            if (plan === 'empresa') {
+                return null;
+            }
+
+            const limitesFallback: Record<string, Record<string, number>> = {
+                gratis: {
+                    administrador: 1,
+                    soporte: 0,
+                    tecnico: 0,
+                },
+                basico: {
+                    administrador: 1,
+                    soporte: 1,
+                    tecnico: 1,
+                },
+                pro: {
+                    administrador: 1,
+                    soporte: 1,
+                    tecnico: 1,
+                },
+            };
+
+            return limitesFallback[plan]?.[rol] ?? 0;
+        };
+
+        const contarUsuariosConRolEnEmpresa = (
+            empresaId: string,
+            rolCodigo: string,
+            usuarioEmpresaActualId: string
+        ) => {
+            return usuariosDueno.filter((usuario) =>
+                usuario.empresa_id === empresaId &&
+                usuario.usuario_empresa_id !== usuarioEmpresaActualId &&
+                usuario.rol_codigo === rolCodigo
+            ).length;
+        };
+        const contarUsuariosConRolEnEmpresaTotal = (
+            empresaId: string,
+            rolCodigo: string
+        ) => {
+            return usuariosDueno.filter((usuario) =>
+                usuario.empresa_id === empresaId &&
+                (usuario.rol_codigo || '').toLowerCase() === rolCodigo.toLowerCase()
+            ).length;
+        };
+
+        const obtenerEstadoVisualRol = (
+            usuario: UsuarioDueno,
+            rol: RolEmpresaDueno
+        ) => {
+            const limite = obtenerLimiteRolPorPlan(usuario.plan_codigo, rol.rol_codigo);
+            const actuales = contarUsuariosConRolEnEmpresa(
+                usuario.empresa_id,
+                rol.rol_codigo,
+                usuario.usuario_empresa_id
+            );
+
+            const esRolActual = usuario.rol_id === rol.rol_id;
+            const plan = usuario.plan_codigo || 'gratis';
+
+            if (esRolActual) {
+                return {
+                    bloqueado: false,
+                    texto: 'Rol actual',
+                    detalle: 'Este usuario ya tiene este rol.',
+                    limite,
+                    actuales,
+                };
+            }
+
+            if (limite === null) {
+                return {
+                    bloqueado: false,
+                    texto: 'Disponible',
+                    detalle: 'Plan Empresa sin límite de usuarios por rol.',
+                    limite,
+                    actuales,
+                };
+            }
+
+            if (limite === 0) {
+                return {
+                    bloqueado: true,
+                    texto: `Bloqueado por plan ${plan}`,
+                    detalle: `El plan ${plan} no permite usuarios con rol ${rol.rol_nombre}.`,
+                    limite,
+                    actuales,
+                };
+            }
+
+            if (actuales >= limite) {
+                return {
+                    bloqueado: true,
+                    texto: 'Límite alcanzado',
+                    detalle: `El plan ${plan} permite máximo ${limite} usuario(s) con rol ${rol.rol_nombre}.`,
+                    limite,
+                    actuales,
+                };
+            }
+
+            return {
+                bloqueado: false,
+                texto: 'Disponible',
+                detalle: `Disponible: ${actuales}/${limite} usados.`,
+                limite,
+                actuales,
+            };
+        };
+        const planesFleetVision: {
+            codigo: 'gratis' | 'basico' | 'pro' | 'empresa';
+            nombre: string;
+            subtitulo: string;
+            precio: string;
+            descripcion: string;
+            color: 'slate' | 'cyan' | 'purple' | 'emerald';
+            destacado?: boolean;
+            funciones: string[];
+        }[] = [
+                {
+                    codigo: 'gratis',
+                    nombre: 'Gratis',
+                    subtitulo: 'Inicio controlado',
+                    precio: '$0',
+                    descripcion: 'Plan de entrada para pruebas, demos y empresas pequeñas.',
+                    color: 'slate',
+                    funciones: [
+                        '1 administrador',
+                        'Sin soporte',
+                        'Sin técnico',
+                        'Acceso limitado por plan',
+                    ],
+                },
+                {
+                    codigo: 'basico',
+                    nombre: 'Básico',
+                    subtitulo: 'Operación inicial',
+                    precio: 'Definir precio',
+                    descripcion: 'Para empresas que comienzan a ordenar usuarios, activos y mantenimiento.',
+                    color: 'cyan',
+                    funciones: [
+                        '1 administrador',
+                        '1 soporte',
+                        '1 técnico',
+                        'Ideal para flotas pequeñas',
+                    ],
+                },
+                {
+                    codigo: 'pro',
+                    nombre: 'Pro',
+                    subtitulo: 'Gestión avanzada',
+                    precio: 'Definir precio',
+                    descripcion: 'Plan principal para clientes con mayor control operativo.',
+                    color: 'purple',
+                    destacado: true,
+                    funciones: [
+                        '1 administrador',
+                        '1 soporte',
+                        '1 técnico',
+                        'Mejor para clientes SaaS activos',
+                    ],
+                },
+                {
+                    codigo: 'empresa',
+                    nombre: 'Empresa',
+                    subtitulo: 'Sin límites por rol',
+                    precio: 'A medida',
+                    descripcion: 'Para clientes grandes, flotas complejas o contratos personalizados.',
+                    color: 'emerald',
+                    funciones: [
+                        'Administradores ilimitados',
+                        'Soporte ilimitado',
+                        'Técnicos ilimitados',
+                        'Personalización empresarial',
+                    ],
+                },
+            ];
+
+        const rolesControladosPlanes = [
+            {
+                codigo: 'administrador',
+                nombre: 'Administrador',
+                icono: '👑',
+            },
+            {
+                codigo: 'soporte',
+                nombre: 'Soporte',
+                icono: '🧩',
+            },
+            {
+                codigo: 'tecnico',
+                nombre: 'Técnico',
+                icono: '🔧',
+            },
+        ];
+
+        const contarEmpresasPorPlan = (planCodigo: string) => {
+            return empresasDueno.filter(
+                (empresa) => (empresa.plan_codigo || 'gratis').toLowerCase() === planCodigo
+            ).length;
+        };
+
+        const contarUsuariosPorPlan = (planCodigo: string) => {
+            return usuariosDueno.filter(
+                (usuario) => (usuario.plan_codigo || 'gratis').toLowerCase() === planCodigo
+            ).length;
+        };
+
+        const contarActivosPorPlan = (planCodigo: string) => {
+            return empresasDueno
+                .filter((empresa) => (empresa.plan_codigo || 'gratis').toLowerCase() === planCodigo)
+                .reduce((total, empresa) => total + (empresa.total_activos || 0), 0);
+        };
+
+        const contarEmpresasActivasPorPlan = (planCodigo: string) => {
+            return empresasDueno.filter(
+                (empresa) =>
+                    (empresa.plan_codigo || 'gratis').toLowerCase() === planCodigo &&
+                    empresa.empresa_activa
+            ).length;
+        };
+
+        const contarEmpresasTrialPorPlan = (planCodigo: string) => {
+            return empresasDueno.filter(
+                (empresa) =>
+                    (empresa.plan_codigo || 'gratis').toLowerCase() === planCodigo &&
+                    empresa.estado_suscripcion === 'trial'
+            ).length;
+        };
+
+        const obtenerClasePlan = (color: string | null | undefined) => {
+            const colorSeguro = (color || 'slate').toLowerCase();
+            switch (colorSeguro) {
+                case 'cyan':
+                    return {
+                        card: 'border-cyan-500/30 bg-cyan-500/10 shadow-cyan-500/10',
+                        badge: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+                        texto: 'text-cyan-300',
+                        boton: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20',
+                    };
+                case 'purple':
+                    return {
+                        card: 'border-purple-500/30 bg-purple-500/10 shadow-purple-500/10',
+                        badge: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+                        texto: 'text-purple-300',
+                        boton: 'border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20',
+                    };
+                case 'emerald':
+                    return {
+                        card: 'border-emerald-500/30 bg-emerald-500/10 shadow-emerald-500/10',
+                        badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                        texto: 'text-emerald-300',
+                        boton: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20',
+                    };
+                default:
+                    return {
+                        card: 'border-slate-600/50 bg-slate-800/30 shadow-slate-500/5',
+                        badge: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+                        texto: 'text-slate-300',
+                        boton: 'border-slate-600 bg-slate-800/40 text-slate-300 hover:bg-slate-700/50',
+                    };
+            }
+        };
+
+        const obtenerLimiteTextoPlan = (planCodigo: string, rolCodigo: string) => {
+            const limite = obtenerLimiteRolPorPlan(planCodigo, rolCodigo);
+
+            if (limite === null) return 'Ilimitado';
+
+            return `${limite}`;
+        };
+        const mostrarLimiteRolTexto = (
+            limite: number | null,
+            rolSingular: string,
+            rolPlural: string
+        ) => {
+            if (limite === null) {
+                return `${rolPlural} ilimitados`;
+            }
+
+            if (limite === 0) {
+                return `Sin ${rolSingular.toLowerCase()}`;
+            }
+
+            if (limite === 1) {
+                return `1 ${rolSingular.toLowerCase()}`;
+            }
+
+            return `${limite} ${rolPlural.toLowerCase()}`;
+        };
+
+        const obtenerFuncionesPlan = (plan: PlanSaasDueno) => {
+            return [
+                mostrarLimiteRolTexto(
+                    plan.limite_administrador,
+                    'Administrador',
+                    'Administradores'
+                ),
+                mostrarLimiteRolTexto(
+                    plan.limite_soporte,
+                    'Soporte',
+                    'Soportes'
+                ),
+                mostrarLimiteRolTexto(
+                    plan.limite_tecnico,
+                    'Técnico',
+                    'Técnicos'
+                ),
+                plan.codigo === 'empresa'
+                    ? 'Personalización empresarial'
+                    : plan.codigo === 'pro'
+                        ? 'Mejor para clientes SaaS activos'
+                        : plan.codigo === 'basico'
+                            ? 'Ideal para flotas pequeñas'
+                            : 'Acceso limitado por plan',
+            ];
+        };
+
+        const planesParaMostrar = planesSaas.length > 0
+            ? planesSaas
+            : planesFleetVision.map((plan) => ({
+                codigo: plan.codigo,
+                nombre: plan.nombre,
+                subtitulo: plan.subtitulo,
+                precio: plan.precio,
+                descripcion: plan.descripcion,
+                color: plan.color,
+                destacado: plan.destacado || false,
+                activo: true,
+                orden: 0,
+                limite_administrador: obtenerLimiteRolPorPlan(plan.codigo, 'administrador'),
+                limite_soporte: obtenerLimiteRolPorPlan(plan.codigo, 'soporte'),
+                limite_tecnico: obtenerLimiteRolPorPlan(plan.codigo, 'tecnico'),
+            }));
+        const esEmpresaDemoDueno = (empresa: EmpresaDueno) => {
+            return (
+                empresa.modo_demo === true ||
+                (empresa.empresa || '').trim().toUpperCase() === 'PRUEBA'
+            );
+        };
+
+        const esEmpresaArchivadaDueno = (empresa: EmpresaDueno) => {
+            return empresa.archivada === true || empresa.empresa_activa === false;
+        };
+
+        const empresasClientesDueno = empresasDueno.filter((empresa) => {
+            return (
+                !esEmpresaDemoDueno(empresa) &&
+                !esEmpresaArchivadaDueno(empresa) &&
+                empresa.estado_suscripcion !== 'trial'
+            );
+        });
+
+        const empresasTrialsDueno = empresasDueno.filter((empresa) => {
+            return (
+                !esEmpresaDemoDueno(empresa) &&
+                !esEmpresaArchivadaDueno(empresa) &&
+                empresa.estado_suscripcion === 'trial'
+            );
+        });
+
+        const empresasDemoDueno = empresasDueno.filter((empresa) => {
+            return esEmpresaDemoDueno(empresa);
+        });
+
+        const empresasArchivadasDueno = empresasDueno.filter((empresa) => {
+            return esEmpresaArchivadaDueno(empresa);
+        });
+
+        const empresasFiltradasDueno = (() => {
+            if (filtroEmpresasDueno === 'clientes') return empresasClientesDueno;
+            if (filtroEmpresasDueno === 'trials') return empresasTrialsDueno;
+            if (filtroEmpresasDueno === 'demo') return empresasDemoDueno;
+            if (filtroEmpresasDueno === 'archivadas') return empresasArchivadasDueno;
+
+            return empresasDueno;
+        })();
+
+        const esUsuarioDemoDueno = (usuario: UsuarioDueno) => {
+            return (usuario.empresa || '').trim().toUpperCase() === 'PRUEBA';
+        };
+
+        const usuariosActivosDueno = usuariosDueno.filter((usuario) => {
+            return usuario.usuario_activo && !esUsuarioDemoDueno(usuario);
+        });
+
+        const usuariosBasureroDueno = usuariosDueno.filter((usuario) => {
+            return !usuario.usuario_activo;
+        });
+
+        const usuariosDemoDueno = usuariosDueno.filter((usuario) => {
+            return esUsuarioDemoDueno(usuario);
+        });
+
+        const usuariosFiltradosDueno = (() => {
+            if (filtroUsuariosDueno === 'activos') return usuariosActivosDueno;
+            if (filtroUsuariosDueno === 'basurero') return usuariosBasureroDueno;
+            if (filtroUsuariosDueno === 'demo') return usuariosDemoDueno;
+
+            return usuariosDueno;
+        })();
+
+        const filtrosEmpresasDueno: {
+            clave: FiltroEmpresasDueno;
+            texto: string;
+            total: number;
+            icono: string;
+        }[] = [
+                { clave: 'clientes', texto: 'Clientes', total: empresasClientesDueno.length, icono: '🏢' },
+                { clave: 'trials', texto: 'Trials', total: empresasTrialsDueno.length, icono: '⏳' },
+                { clave: 'demo', texto: 'Demo', total: empresasDemoDueno.length, icono: '🧪' },
+                { clave: 'archivadas', texto: 'Archivadas', total: empresasArchivadasDueno.length, icono: '🗄️' },
+                { clave: 'todos', texto: 'Todos', total: empresasDueno.length, icono: '📋' },
+            ];
+
+        const filtrosUsuariosDueno: {
+            clave: FiltroUsuariosDueno;
+            texto: string;
+            total: number;
+            icono: string;
+        }[] = [
+                { clave: 'activos', texto: 'Activos', total: usuariosActivosDueno.length, icono: '✅' },
+                { clave: 'basurero', texto: 'Basurero', total: usuariosBasureroDueno.length, icono: '🗑️' },
+                { clave: 'demo', texto: 'Demo', total: usuariosDemoDueno.length, icono: '🧪' },
+                { clave: 'todos', texto: 'Todos', total: usuariosDueno.length, icono: '📋' },
+            ];
+
+        const obtenerRolVisibleUsuarioDueno = (usuario: UsuarioDueno) => {
+            const rolBase = (
+                usuario.rol_nombre ||
+                usuario.usuario_rol_texto ||
+                usuario.rol_codigo ||
+                ''
+            ).trim();
+
+            if (!rolBase || rolBase.toLowerCase() === 'sin rol') {
+                return 'Sin rol';
+            }
+
+            const rolNormalizado = rolBase.toLowerCase();
+
+            if (rolNormalizado === 'administrador') return 'Administrador';
+            if (rolNormalizado === 'soporte') return 'Soporte';
+            if (rolNormalizado === 'tecnico') return 'Técnico';
+            if (rolNormalizado === 'técnico') return 'Técnico';
+            if (rolNormalizado === 'dueno') return 'Dueño';
+            if (rolNormalizado === 'dueño') return 'Dueño';
+
+            return rolBase.charAt(0).toUpperCase() + rolBase.slice(1);
+        };
+        const normalizarRolParaLimiteDueno = (rol: string) => {
+            const limpio = (rol || '')
+                .trim()
+                .toLowerCase()
+                .replace('é', 'e');
+
+            if (limpio === 'administrador') return 'administrador';
+            if (limpio === 'soporte') return 'soporte';
+            if (limpio === 'tecnico') return 'tecnico';
+
+            return limpio || 'sin_rol';
+        };
+
+        const obtenerLimiteRolEmpresaDueno = (
+            empresa: EmpresaDueno,
+            rol: string
+        ): number | null => {
+            const planCodigo = (empresa.plan_codigo || 'gratis').toLowerCase();
+
+            const plan = planesSaas.find(
+                (planItem) => planItem.codigo.toLowerCase() === planCodigo
+            );
+
+            if (!plan) {
+                return null;
+            }
+
+            const rolCodigo = normalizarRolParaLimiteDueno(rol);
+
+            if (rolCodigo === 'administrador') {
+                return plan.limite_administrador;
+            }
+
+            if (rolCodigo === 'soporte') {
+                return plan.limite_soporte;
+            }
+
+            if (rolCodigo === 'tecnico') {
+                return plan.limite_tecnico;
+            }
+
+            return null;
+        };
+
+        const mostrarLimiteBadgeDueno = (limite: number | null) => {
+            if (limite === null) return 'Ilimitado';
+
+            return String(limite);
+        };
+
+        const resumenRolesPorEmpresaDueno = empresasDueno
+            .map((empresa) => {
+                const usuariosEmpresa = usuariosDueno.filter(
+                    (usuario) => usuario.empresa_id === empresa.empresa_id
+                );
+
+                const usuariosActivosEmpresa = usuariosEmpresa.filter(
+                    (usuario) => usuario.usuario_activo
+                );
+
+                const rolesControlados = ['Administrador', 'Soporte', 'Técnico'];
+
+                const rolesControladosResumen = rolesControlados.map((rol) => {
+                    const total = usuariosEmpresa.filter(
+                        (usuario) => obtenerRolVisibleUsuarioDueno(usuario) === rol
+                    ).length;
+
+                    const limite = obtenerLimiteRolEmpresaDueno(empresa, rol);
+
+                    return {
+                        rol,
+                        total,
+                        limite,
+                        excedido: limite !== null && total > limite,
+                    };
+                });
+
+                const totalSinRol = usuariosEmpresa.filter(
+                    (usuario) => obtenerRolVisibleUsuarioDueno(usuario) === 'Sin rol'
+                ).length;
+
+                const roles = [
+                    ...rolesControladosResumen.filter(
+                        (rol) => rol.total > 0 || rol.limite !== null
+                    ),
+                    ...(totalSinRol > 0
+                        ? [
+                            {
+                                rol: 'Sin rol',
+                                total: totalSinRol,
+                                limite: null,
+                                excedido: false,
+                            },
+                        ]
+                        : []),
+                ];
+
+                const rolesConExceso = roles.filter((rol) => rol.excedido);
+
+                return {
+                    empresa,
+                    usuariosEmpresa,
+                    totalUsuarios: usuariosEmpresa.length,
+                    totalUsuariosActivos: usuariosActivosEmpresa.length,
+                    roles,
+                    rolesConExceso,
+                };
+            })
+            .sort((a, b) => b.totalUsuarios - a.totalUsuarios);
+
+        const totalUsuariosRolesDueno = usuariosDueno.length;
+
+        const totalEmpresasConUsuariosDueno = resumenRolesPorEmpresaDueno.filter(
+            (item) => item.totalUsuarios > 0
+        ).length;
+
+        const totalUsuariosSinRolDueno = usuariosDueno.filter(
+            (usuario) => obtenerRolVisibleUsuarioDueno(usuario) === 'Sin rol'
+        ).length;
+        const totalEmpresasExcedidasDueno = resumenRolesPorEmpresaDueno.filter(
+            (item) => item.rolesConExceso.length > 0
+        ).length;
+        const tarjetas = [
+            {
+                modulo: 'empresas',
+                titulo: 'Empresas',
+                icono: '🏢',
+                descripcion: 'Gestionar empresas, planes, estado y trial.',
+                estado: 'Conectado',
+                color: 'cyan',
+                accion: async () => {
+                    setModuloDuenoActivo('empresas');
+
+                    if (empresasDueno.length === 0) {
+                        await cargarEmpresasDueno();
+                    }
+                },
+            },
+            {
+                modulo: 'usuarios',
+                titulo: 'Usuarios',
+                icono: '👥',
+                descripcion: 'Crear, vincular, editar, bloquear y borrar usuarios de forma segura.',
+                estado: 'Conectado',
+                color: 'emerald',
+                accion: async () => {
+                    setModuloDuenoActivo('usuarios');
+
+                    if (usuariosDueno.length === 0 || rolesEmpresaDueno.length === 0) {
+                        await cargarUsuariosDueno();
+                    }
+
+                    if (empresasDueno.length === 0) {
+                        await cargarEmpresasDueno();
+                    }
+                },
+            },
+            {
+                modulo: 'planes',
+                titulo: 'Planes',
+                icono: '💳',
+                descripcion: 'Visualizar y editar gratis, básico, pro y empresa con límites reales.',
+                estado: 'Conectado',
+                color: 'amber',
+                accion: async () => {
+                    setModuloDuenoActivo('planes');
+
+                    if (planesSaas.length === 0) {
+                        await cargarPlanesSaas();
+                    }
+
+                    if (empresasDueno.length === 0) {
+                        await cargarEmpresasDueno();
+                    }
+
+                    if (usuariosDueno.length === 0) {
+                        await cargarUsuariosDueno();
+                    }
+                },
+            },
+            {
+                modulo: 'solicitudes',
+                titulo: 'Solicitudes de prueba',
+                icono: '🧪',
+                descripcion: 'Gestionar interesados que completaron el formulario del home.',
+                estado: 'Conectado',
+                color: 'cyan',
+                accion: async () => {
+                    setModuloDuenoActivo('solicitudes');
+
+                    if (solicitudesPrueba.length === 0) {
+                        await cargarSolicitudesPrueba();
+                    }
+                },
+            },
+            {
+                modulo: 'roles',
+                titulo: 'Roles y permisos',
+                icono: '🔐',
+                descripcion: 'Ver usuarios por empresa, cantidad de usuarios y roles asignados.',
+                estado: 'Conectado',
+                color: 'purple',
+                accion: async () => {
+                    setModuloDuenoActivo('roles');
+
+                    if (empresasDueno.length === 0) {
+                        await cargarEmpresasDueno();
+                    }
+
+                    if (usuariosDueno.length === 0 || rolesEmpresaDueno.length === 0) {
+                        await cargarUsuariosDueno();
+                    }
+
+                    if (planesSaas.length === 0) {
+                        await cargarPlanesSaas();
+                    }
+                },
+            },
+            {
+                modulo: 'diagnostico',
+                titulo: 'Diagnóstico',
+                icono: '🧪',
+                descripcion: 'Revisar empresas, usuarios, vínculos y configuración general.',
+                estado: 'Conectado',
+                color: 'red',
+                accion: async () => {
+                    setModuloDuenoActivo('diagnostico');
+
+                    if (diagnosticoDueno.length === 0) {
+                        await cargarDiagnosticoDueno();
+                    }
+                },
+            },
+        ];
+
+        return (
+            <div className="space-y-6">
+                {/* Header principal */}
+                <div className="rounded-3xl border border-purple-500/30 bg-gradient-to-br from-purple-500/10 via-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-purple-500/10">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                            <p className="text-sm font-bold text-purple-300">🛡️ Acceso interno</p>
+
+                            <h3 className="mt-2 text-3xl font-black text-white">
+                                Panel Dueño / Desarrollador
+                            </h3>
+
+                            <p className="mt-2 max-w-3xl text-sm text-slate-400">
+                                Desde aquí podrás controlar empresas, planes, usuarios, roles y permisos.
+                                Por seguridad, esta sección solo aparece para usuarios con rol global.
+                            </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 text-right">
+                            <p className="text-xs text-slate-400">Rol global actual</p>
+
+                            <p className="mt-1 text-xl font-black text-purple-300">
+                                {rolGlobal?.nombre || 'Dueño'}
+                            </p>
+
+                            <p className="mt-1 text-[11px] text-slate-500">
+                                {rolGlobal?.rol_global || 'dueno'}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Métricas superiores */}
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                        <p className="text-sm text-slate-400">Empresa actual</p>
+
+                        <p className="mt-2 text-2xl font-black text-cyan-300">
+                            {empresaActual?.nombre || 'Sin empresa'}
+                        </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                        <p className="text-sm text-slate-400">Módulos habilitados</p>
+
+                        <p className="mt-2 text-2xl font-black text-emerald-300">
+                            {modulosActivos}
+                        </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
+                        <p className="text-sm text-slate-400">Módulos bloqueados</p>
+
+                        <p className="mt-2 text-2xl font-black text-amber-300">
+                            {modulosBloqueados}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Tarjetas de módulos */}
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                    {tarjetas.map((tarjeta) => (
+                        <div
+                            key={tarjeta.titulo}
+                            className="rounded-3xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-5 shadow-lg shadow-black/20 transition-all hover:-translate-y-1 hover:border-purple-500/40 hover:shadow-purple-500/10"
+                        >
+                            <div className="mb-4 flex items-start justify-between gap-4">
+                                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-500/10 text-2xl">
+                                    {tarjeta.icono}
+                                </div>
+
+                                <span
+                                    className={`rounded-full border px-3 py-1 text-[11px] font-bold ${tarjeta.estado === 'Conectado'
+                                        ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                        : 'border-purple-500/20 bg-purple-500/10 text-purple-300'
+                                        }`}
+                                >
+                                    {tarjeta.estado}
+                                </span>
+                            </div>
+
+                            <h4 className="text-lg font-black text-white">
+                                {tarjeta.titulo}
+                            </h4>
+
+                            <p className="mt-2 text-sm text-slate-400">
+                                {tarjeta.descripcion}
+                            </p>
+
+                            <button
+                                type="button"
+                                className="mt-5 w-full rounded-2xl border border-slate-700 px-4 py-3 text-sm font-bold text-slate-400 transition-all hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-purple-300"
+                                onClick={tarjeta.accion}
+                            >
+                                Abrir módulo
+                            </button>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Módulo Empresas */}
+                {moduloDuenoActivo === 'empresas' && (
+                    <div className="rounded-3xl border border-cyan-500/20 bg-slate-950/70 p-6 shadow-xl shadow-cyan-500/5">
+                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-cyan-300">🏢 Módulo conectado</p>
+
+                                <h4 className="mt-1 text-2xl font-black text-white">
+                                    Empresas registradas
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Aquí puedes revisar empresas, planes, usuarios, activos y estado de suscripción.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalNuevaEmpresa(true)}
+                                    className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-bold text-emerald-300 transition-all hover:bg-emerald-500/20"
+                                >
+                                    + Nueva empresa
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={cargarEmpresasDueno}
+                                    className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-bold text-cyan-300 transition-all hover:bg-cyan-500/20"
+                                >
+                                    Actualizar empresas
+                                </button>
+                            </div>
+                        </div>
+                        <div className="mb-6 flex flex-wrap gap-3">
+                            {filtrosEmpresasDueno.map((filtro) => {
+                                const activo = filtroEmpresasDueno === filtro.clave;
+
+                                return (
+                                    <button
+                                        key={filtro.clave}
+                                        type="button"
+                                        onClick={() => setFiltroEmpresasDueno(filtro.clave)}
+                                        className={`rounded-2xl border px-4 py-3 text-sm font-black transition-all ${activo
+                                            ? 'border-cyan-500/40 bg-cyan-500/20 text-cyan-300 shadow-lg shadow-cyan-500/10'
+                                            : 'border-slate-700 bg-slate-900/60 text-slate-400 hover:border-cyan-500/30 hover:text-cyan-300'
+                                            }`}
+                                    >
+                                        {filtro.icono} {filtro.texto}
+                                        <span className="ml-2 rounded-full bg-slate-950/70 px-2 py-1 text-xs">
+                                            {filtro.total}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        {cargandoEmpresasDueno ? (
+                            <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-8 text-center">
+                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-2 border-cyan-500 border-t-transparent" />
+
+                                <p className="text-sm font-bold text-cyan-300">
+                                    Cargando empresas...
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Consultando información segura desde Supabase.
+                                </p>
+                            </div>
+                        ) : empresasFiltradasDueno.length === 0 ? (
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-6 text-center">
+                                <p className="text-sm font-bold text-amber-300">
+                                    No hay empresas para mostrar.
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Presiona “Actualizar empresas” para volver a consultar.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                                <table className="w-full min-w-[950px] text-left text-sm">
+                                    <thead className="bg-slate-900/90">
+                                        <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
+                                            <th className="px-4 py-4">Empresa</th>
+                                            <th className="px-4 py-4">Estado</th>
+                                            <th className="px-4 py-4">Plan</th>
+                                            <th className="px-4 py-4">Suscripción</th>
+                                            <th className="px-4 py-4">Trial termina</th>
+                                            <th className="px-4 py-4 text-center">Usuarios</th>
+                                            <th className="px-4 py-4 text-center">Activos</th>
+                                            <th className="px-4 py-4">Acciones</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody>
+                                        {empresasFiltradasDueno.map((empresa) => {
+                                            const estadoSuscripcion = obtenerEstadoSuscripcion(
+                                                empresa.estado_suscripcion
+                                            );
+
+                                            return (
+                                                <tr
+                                                    key={empresa.empresa_id}
+                                                    className="border-b border-slate-900 bg-slate-950/40 text-slate-300 transition-colors hover:bg-cyan-500/5"
+                                                >
+                                                    <td className="px-4 py-4">
+                                                        <div className="font-black text-white">
+                                                            {empresa.empresa}
+                                                        </div>
+
+                                                        <div className="mt-1 text-xs text-slate-500">
+                                                            {empresa.rut || 'Sin RUT'}
+                                                        </div>
+
+                                                        <div className="mt-1 text-[10px] text-slate-600">
+                                                            {empresa.empresa_id}
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <span
+                                                            className={`rounded-full px-3 py-1 text-xs font-bold ${empresa.empresa_activa
+                                                                ? 'bg-emerald-500/20 text-emerald-300'
+                                                                : 'bg-red-500/20 text-red-300'
+                                                                }`}
+                                                        >
+                                                            {empresa.empresa_activa ? 'Activa' : 'Inactiva'}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-300">
+                                                            {empresa.nombre_plan || empresa.plan_codigo || 'Sin plan'}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <span
+                                                            className={`rounded-full border px-3 py-1 text-xs font-bold ${estadoSuscripcion.clase}`}
+                                                        >
+                                                            {estadoSuscripcion.texto}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-4 py-4 text-slate-300">
+                                                        {formatearFecha(empresa.trial_ends_at)}
+                                                    </td>
+
+                                                    <td className="px-4 py-4 text-center">
+                                                        <span className="rounded-xl bg-purple-500/10 px-3 py-2 font-black text-purple-300">
+                                                            {empresa.total_usuarios}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-4 py-4 text-center">
+                                                        <span className="rounded-xl bg-emerald-500/10 px-3 py-2 font-black text-emerald-300">
+                                                            {empresa.total_activos}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <button
+                                                            type="button"
+                                                            className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-400 transition-colors hover:border-cyan-500/40 hover:text-cyan-300"
+                                                            onClick={() => setEmpresaGestionSeleccionada(empresa)}
+                                                        >
+                                                            Gestionar
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Módulo Usuarios */}
+                {moduloDuenoActivo === 'usuarios' && (
+                    <div className="rounded-3xl border border-emerald-500/20 bg-slate-950/70 p-6 shadow-xl shadow-emerald-500/5">
+                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-emerald-300">
+                                    👥 Módulo conectado
+                                </p>
+
+                                <h4 className="mt-1 text-2xl font-black text-white">
+                                    Usuarios por empresa
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Revisa usuarios, empresa asignada, plan, estado y rol actual.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                                <button
+                                    type="button"
+                                    onClick={abrirModalCrearUsuario}
+                                    className="rounded-2xl border border-purple-500/30 bg-purple-500/10 px-5 py-3 text-sm font-bold text-purple-300 transition-all hover:bg-purple-500/20"
+                                >
+                                    + Crear usuario nuevo
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={abrirModalVincularUsuario}
+                                    className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-3 text-sm font-bold text-emerald-300 transition-all hover:bg-emerald-500/20"
+                                >
+                                    + Vincular existente
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={cargarUsuariosDueno}
+                                    className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-bold text-cyan-300 transition-all hover:bg-cyan-500/20"
+                                >
+                                    Actualizar usuarios
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                                <p className="text-sm text-slate-400">Usuarios vinculados</p>
+                                <p className="mt-2 text-2xl font-black text-emerald-300">
+                                    {usuariosDueno.length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                <p className="text-sm text-slate-400">Roles disponibles</p>
+                                <p className="mt-2 text-2xl font-black text-cyan-300">
+                                    {rolesEmpresaDueno.length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-5">
+                                <p className="text-sm text-slate-400">Administradores</p>
+                                <p className="mt-2 text-2xl font-black text-purple-300">
+                                    {usuariosDueno.filter((u) => u.rol_codigo === 'administrador').length}
+                                </p>
+                            </div>
+                        </div>
+
+                        {cargandoUsuariosDueno ? (
+                            <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-8 text-center">
+                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+
+                                <p className="text-sm font-bold text-emerald-300">
+                                    Cargando usuarios...
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Consultando usuarios y roles desde Supabase.
+                                </p>
+                            </div>
+                        ) : usuariosDueno.length === 0 ? (
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-6 text-center">
+                                <p className="text-sm font-bold text-amber-300">
+                                    No hay usuarios vinculados para mostrar.
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Presiona “Actualizar usuarios” para volver a consultar.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                                <table className="w-full min-w-[1050px] text-left text-sm">
+                                    <thead className="bg-slate-900/90">
+                                        <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
+                                            <th className="px-4 py-4">Usuario</th>
+                                            <th className="px-4 py-4">Empresa</th>
+                                            <th className="px-4 py-4">Plan</th>
+                                            <th className="px-4 py-4">Suscripción</th>
+                                            <th className="px-4 py-4">Rol empresa</th>
+                                            <th className="px-4 py-4">Rol texto</th>
+                                            <th className="px-4 py-4">Estado</th>
+                                            <th className="px-4 py-4">Acciones</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody>
+                                        {usuariosDueno.map((usuario) => (
+                                            <tr
+                                                key={usuario.usuario_empresa_id}
+                                                className="border-b border-slate-900 bg-slate-950/40 text-slate-300 transition-colors hover:bg-emerald-500/5"
+                                            >
+                                                <td className="px-4 py-4">
+                                                    <div className="font-black text-white">
+                                                        {usuario.username || 'Sin username'}
+                                                    </div>
+
+                                                    <div className="mt-1 text-xs text-slate-500">
+                                                        {usuario.apellido || 'Sin apellido'}
+                                                    </div>
+
+                                                    <div className="mt-1 text-[10px] text-slate-600">
+                                                        auth: {usuario.auth_id}
+                                                    </div>
+                                                </td>
+
+                                                <td className="px-4 py-4">
+                                                    <div className="font-bold text-white">
+                                                        {usuario.empresa}
+                                                    </div>
+
+                                                    <span
+                                                        className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${usuario.empresa_activa
+                                                            ? 'bg-emerald-500/20 text-emerald-300'
+                                                            : 'bg-red-500/20 text-red-300'
+                                                            }`}
+                                                    >
+                                                        {usuario.empresa_activa ? 'Empresa activa' : 'Empresa inactiva'}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-4">
+                                                    <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-xs font-bold text-cyan-300">
+                                                        {usuario.plan_codigo || 'Sin plan'}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-4">
+                                                    <span className="rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-xs font-bold text-purple-300">
+                                                        {usuario.estado_suscripcion || 'Sin estado'}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-4">
+                                                    <span
+                                                        className={`rounded-full border px-3 py-1 text-xs font-bold ${usuario.rol_codigo === 'administrador'
+                                                            ? 'border-purple-500/20 bg-purple-500/10 text-purple-300'
+                                                            : usuario.rol_codigo === 'soporte'
+                                                                ? 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300'
+                                                                : usuario.rol_codigo === 'tecnico'
+                                                                    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                                                    : 'border-slate-500/20 bg-slate-500/10 text-slate-300'
+                                                            }`}
+                                                    >
+                                                        {usuario.rol_nombre || 'Sin rol'}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-4 text-slate-400">
+                                                    {usuario.usuario_rol_texto || 'Sin dato'}
+                                                </td>
+
+                                                <td className="px-4 py-4">
+                                                    <span
+                                                        className={`rounded-full px-3 py-1 text-xs font-bold ${usuario.usuario_activo
+                                                            ? 'bg-emerald-500/20 text-emerald-300'
+                                                            : 'bg-red-500/20 text-red-300'
+                                                            }`}
+                                                    >
+                                                        {usuario.usuario_activo ? 'Activo' : 'Inactivo'}
+                                                    </span>
+                                                </td>
+
+                                                <td className="px-4 py-4">
+                                                    <button
+                                                        type="button"
+                                                        className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-400 transition-colors hover:border-emerald-500/40 hover:text-emerald-300"
+                                                        onClick={() => setUsuarioGestionSeleccionado(usuario)}
+                                                    >
+                                                        Gestionar
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {/* Módulo Roles y permisos */}
+                {moduloDuenoActivo === 'roles' && (
+                    <div className="rounded-3xl border border-purple-500/20 bg-slate-950/70 p-6 shadow-xl shadow-purple-500/5">
+                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-purple-300">
+                                    🔐 Módulo conectado
+                                </p>
+
+                                <h4 className="mt-1 text-2xl font-black text-white">
+                                    Roles y usuarios por empresa
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Aquí puedes ver cuántos usuarios tiene cada empresa y qué rol tiene cada usuario.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        await cargarEmpresasDueno();
+                                        await cargarUsuariosDueno();
+                                    }}
+                                    className="rounded-2xl border border-purple-500/30 bg-purple-500/10 px-5 py-3 text-sm font-bold text-purple-300 transition-all hover:bg-purple-500/20"
+                                >
+                                    Actualizar roles
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                <p className="text-xs font-bold text-slate-400">
+                                    Usuarios totales
+                                </p>
+
+                                <p className="mt-2 text-3xl font-black text-cyan-300">
+                                    {totalUsuariosRolesDueno}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                                <p className="text-xs font-bold text-slate-400">
+                                    Empresas con usuarios
+                                </p>
+
+                                <p className="mt-2 text-3xl font-black text-emerald-300">
+                                    {totalEmpresasConUsuariosDueno}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
+                                <p className="text-xs font-bold text-slate-400">
+                                    Alertas de roles
+                                </p>
+
+                                <p className="mt-2 text-3xl font-black text-amber-300">
+                                    {totalEmpresasExcedidasDueno}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Sin rol: {totalUsuariosSinRolDueno}
+                                </p>
+                            </div>
+                        </div>
+
+                        {cargandoUsuariosDueno || cargandoEmpresasDueno ? (
+                            <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-8 text-center">
+                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
+
+                                <p className="text-sm font-bold text-purple-300">
+                                    Cargando roles y usuarios...
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Consultando empresas y vínculos de usuarios desde Supabase.
+                                </p>
+                            </div>
+                        ) : resumenRolesPorEmpresaDueno.length === 0 ? (
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-6 text-center">
+                                <p className="text-sm font-bold text-amber-300">
+                                    No hay datos de roles para mostrar.
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Presiona “Actualizar roles” para volver a consultar.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                                {resumenRolesPorEmpresaDueno.map((item) => (
+                                    <div
+                                        key={item.empresa.empresa_id}
+                                        className="rounded-3xl border border-slate-800 bg-slate-950/80 p-5"
+                                    >
+                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                            <div>
+                                                <h5 className="text-xl font-black text-white">
+                                                    {item.empresa.empresa}
+                                                </h5>
+
+                                                <p className="mt-1 text-xs text-slate-500">
+                                                    {item.empresa.rut || 'Sin RUT'}
+                                                </p>
+
+                                                <p className="mt-1 text-[10px] text-slate-600">
+                                                    {item.empresa.empresa_id}
+                                                </p>
+                                            </div>
+
+                                            <div className="flex flex-wrap gap-2">
+                                                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-300">
+                                                    👥 {item.totalUsuarios} usuarios
+                                                </span>
+
+                                                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300">
+                                                    ✅ {item.totalUsuariosActivos} activos
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-4 flex flex-wrap gap-2">
+                                            {item.roles.length === 0 ? (
+                                                <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold text-slate-400">
+                                                    Sin usuarios vinculados
+                                                </span>
+                                            ) : (
+                                                item.roles.map((rol) => (
+                                                    <span
+                                                        key={`${item.empresa.empresa_id}-${rol.rol}`}
+                                                        className={`rounded-full border px-3 py-1 text-xs font-black ${rol.excedido
+                                                            ? 'border-red-500/40 bg-red-500/10 text-red-300'
+                                                            : rol.rol === 'Administrador'
+                                                                ? 'border-purple-500/30 bg-purple-500/10 text-purple-300'
+                                                                : rol.rol === 'Soporte'
+                                                                    ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+                                                                    : rol.rol === 'Técnico'
+                                                                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                                                        : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                                                            }`}
+                                                    >
+                                                        {rol.excedido ? '⚠️ ' : ''}
+                                                        {rol.rol}: {rol.total}
+
+                                                        {rol.rol !== 'Sin rol' && (
+                                                            <>
+                                                                {' / '}
+                                                                {mostrarLimiteBadgeDueno(rol.limite)}
+                                                            </>
+                                                        )}
+                                                    </span>
+                                                ))
+                                            )}
+                                        </div>
+
+                                        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-800">
+                                            {item.usuariosEmpresa.length === 0 ? (
+                                                <div className="bg-slate-900/50 p-4 text-sm text-slate-500">
+                                                    Esta empresa no tiene usuarios vinculados.
+                                                </div>
+                                            ) : (
+                                                <div className="divide-y divide-slate-800">
+                                                    {item.usuariosEmpresa.map((usuario) => {
+                                                        const rolVisible = obtenerRolVisibleUsuarioDueno(usuario);
+
+                                                        return (
+                                                            <div
+                                                                key={usuario.usuario_empresa_id}
+                                                                className="flex flex-col gap-3 bg-slate-950/60 p-4 md:flex-row md:items-center md:justify-between"
+                                                            >
+                                                                <div>
+                                                                    <p className="font-black text-white">
+                                                                        {usuario.username || 'Sin nombre'}
+                                                                        {usuario.apellido ? ` ${usuario.apellido}` : ''}
+                                                                    </p>
+
+                                                                    <p className="mt-1 text-xs text-slate-500">
+                                                                        Usuario ID: {usuario.usuario_id}
+                                                                    </p>
+
+                                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                                        <span
+                                                                            className={`rounded-full px-3 py-1 text-xs font-black ${usuario.usuario_activo
+                                                                                ? 'bg-emerald-500/10 text-emerald-300'
+                                                                                : 'bg-red-500/10 text-red-300'
+                                                                                }`}
+                                                                        >
+                                                                            {usuario.usuario_activo ? 'Activo' : 'Inactivo'}
+                                                                        </span>
+
+                                                                        <span className="rounded-full bg-purple-500/10 px-3 py-1 text-xs font-black text-purple-300">
+                                                                            {rolVisible}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setUsuarioGestionSeleccionado(usuario)}
+                                                                    className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-bold text-slate-400 transition-colors hover:border-purple-500/40 hover:text-purple-300"
+                                                                >
+                                                                    Gestionar usuario
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+                {/* Módulo Diagnóstico */}
+                {/* Módulo Planes */}
+                {moduloDuenoActivo === 'planes' && (
+                    <div className="rounded-3xl border border-amber-500/20 bg-slate-950/70 p-6 shadow-xl shadow-amber-500/5">
+                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-amber-300">
+                                    💳 Módulo conectado
+                                </p>
+
+                                <h4 className="mt-1 text-2xl font-black text-white">
+                                    Planes FleetVision
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Visualiza límites por rol, empresas activas, usuarios vinculados y activos por plan.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        await cargarEmpresasDueno();
+                                        await cargarUsuariosDueno();
+
+                                        mostrarModalSistema(
+                                            'exito',
+                                            'Planes actualizados',
+                                            'La información de empresas, usuarios y límites fue recargada.',
+                                            'Los valores del módulo Planes ya están sincronizados con Supabase.'
+                                        );
+                                    }}
+                                    className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm font-black text-amber-300 transition-all hover:bg-amber-500/20"
+                                >
+                                    Actualizar planes
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setModuloDuenoActivo('empresas');
+                                        cargarEmpresasDueno();
+                                    }}
+                                    className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-300 transition-all hover:bg-cyan-500/20"
+                                >
+                                    Ir a empresas
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
+                                <p className="text-sm text-slate-400">Planes definidos</p>
+                                <p className="mt-2 text-3xl font-black text-amber-300">
+                                    {planesParaMostrar.length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                <p className="text-sm text-slate-400">Empresas registradas</p>
+                                <p className="mt-2 text-3xl font-black text-cyan-300">
+                                    {empresasDueno.length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                                <p className="text-sm text-slate-400">Usuarios vinculados</p>
+                                <p className="mt-2 text-3xl font-black text-emerald-300">
+                                    {usuariosDueno.length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-5">
+                                <p className="text-sm text-slate-400">Empresas trial</p>
+                                <p className="mt-2 text-3xl font-black text-purple-300">
+                                    {
+                                        empresasDueno.filter(
+                                            (empresa) => empresa.estado_suscripcion === 'trial'
+                                        ).length
+                                    }
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-5 xl:grid-cols-4">
+                            {planesParaMostrar.map((plan) => {
+                                const clases = obtenerClasePlan(plan.color);
+                                const empresasPlan = contarEmpresasPorPlan(plan.codigo);
+                                const empresasActivasPlan = contarEmpresasActivasPorPlan(plan.codigo);
+                                const usuariosPlan = contarUsuariosPorPlan(plan.codigo);
+                                const activosPlan = contarActivosPorPlan(plan.codigo);
+                                const empresasTrialPlan = contarEmpresasTrialPorPlan(plan.codigo);
+
+                                return (
+                                    <div
+                                        key={plan.codigo}
+                                        className={`relative rounded-3xl border p-5 shadow-xl ${clases.card}`}
+                                    >
+                                        {plan.destacado && (
+                                            <div className="absolute right-4 top-4 rounded-full border border-purple-500/30 bg-purple-500/20 px-3 py-1 text-[10px] font-black uppercase tracking-wide text-purple-200">
+                                                Recomendado
+                                            </div>
+                                        )}
+
+                                        <div className="mb-5">
+                                            <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${clases.badge}`}>
+                                                {plan.subtitulo}
+                                            </span>
+
+                                            <h5 className="mt-4 text-2xl font-black text-white">
+                                                {plan.nombre}
+                                            </h5>
+
+                                            <p className={`mt-1 text-2xl font-black ${clases.texto}`}>
+                                                {mostrarPrecioPlan(plan.precio)}
+                                            </p>
+
+                                            <p className="mt-3 min-h-[60px] text-sm text-slate-400">
+                                                {plan.descripcion}
+                                            </p>
+                                        </div>
+
+                                        <div className="mb-5 grid grid-cols-2 gap-3">
+                                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                                <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                                                    Empresas
+                                                </p>
+                                                <p className="mt-1 text-xl font-black text-white">
+                                                    {empresasPlan}
+                                                </p>
+                                            </div>
+
+                                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                                <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                                                    Activas
+                                                </p>
+                                                <p className="mt-1 text-xl font-black text-emerald-300">
+                                                    {empresasActivasPlan}
+                                                </p>
+                                            </div>
+
+                                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                                <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                                                    Usuarios
+                                                </p>
+                                                <p className="mt-1 text-xl font-black text-cyan-300">
+                                                    {usuariosPlan}
+                                                </p>
+                                            </div>
+
+                                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                                <p className="text-[10px] uppercase tracking-wide text-slate-500">
+                                                    Activos
+                                                </p>
+                                                <p className="mt-1 text-xl font-black text-amber-300">
+                                                    {activosPlan}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                                                Límites por rol
+                                            </p>
+
+                                            {rolesControladosPlanes.map((rol) => (
+                                                <div
+                                                    key={`${plan.codigo}-${rol.codigo}`}
+                                                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/40 px-3 py-2"
+                                                >
+                                                    <span className="text-sm font-bold text-slate-300">
+                                                        {rol.icono} {rol.nombre}
+                                                    </span>
+
+                                                    <span className={`text-sm font-black ${clases.texto}`}>
+                                                        {obtenerLimiteTextoPlan(plan.codigo, rol.codigo)}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="mt-5 space-y-2">
+                                            {obtenerFuncionesPlan(plan).map((funcion) => (
+                                                <div
+                                                    key={`${plan.codigo}-${funcion}`}
+                                                    className="flex items-center gap-2 text-sm text-slate-300"
+                                                >
+                                                    <span className={clases.texto}>✓</span>
+                                                    <span>{funcion}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => abrirModalEditarPlan(plan as PlanSaasDueno)}
+                                            className={`mt-5 w-full rounded-2xl border px-4 py-3 text-sm font-black transition-all ${clases.boton}`}
+                                        >
+                                            ✏️ Editar plan
+                                        </button>
+                                        <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3">
+                                            <p className="text-xs font-black text-amber-300">
+                                                Trial en este plan: {empresasTrialPlan}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Control visual conectado a empresas actuales.
+                                            </p>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="mt-6 rounded-3xl border border-slate-700/60 bg-slate-950/80 p-5">
+                            <div className="mb-4 flex items-center justify-between gap-3">
+                                <div>
+                                    <h5 className="text-xl font-black text-white">
+                                        Empresas por plan
+                                    </h5>
+
+                                    <p className="mt-1 text-sm text-slate-400">
+                                        Resumen rápido para revisar distribución comercial y uso actual.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {empresasDueno.length === 0 ? (
+                                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5 text-center">
+                                    <p className="font-bold text-amber-300">
+                                        No hay empresas cargadas.
+                                    </p>
+
+                                    <p className="mt-1 text-sm text-slate-400">
+                                        Presiona “Actualizar planes” para consultar Supabase.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                                    <table className="w-full min-w-[900px] text-left text-sm">
+                                        <thead className="bg-slate-900/90">
+                                            <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
+                                                <th className="px-4 py-4">Empresa</th>
+                                                <th className="px-4 py-4">Plan</th>
+                                                <th className="px-4 py-4">Suscripción</th>
+                                                <th className="px-4 py-4 text-center">Usuarios</th>
+                                                <th className="px-4 py-4 text-center">Activos</th>
+                                                <th className="px-4 py-4">Estado</th>
+                                            </tr>
+                                        </thead>
+
+                                        <tbody>
+                                            {empresasDueno.map((empresa) => {
+                                                const estadoSuscripcion = obtenerEstadoSuscripcion(
+                                                    empresa.estado_suscripcion
+                                                );
+
+                                                return (
+                                                    <tr
+                                                        key={`planes-${empresa.empresa_id}`}
+                                                        className="border-b border-slate-900 transition-colors hover:bg-white/[0.02]"
+                                                    >
+                                                        <td className="px-4 py-4">
+                                                            <p className="font-black text-white">
+                                                                {empresa.empresa}
+                                                            </p>
+                                                            <p className="text-xs text-slate-500">
+                                                                {empresa.rut || 'Sin RUT'}
+                                                            </p>
+                                                        </td>
+
+                                                        <td className="px-4 py-4">
+                                                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-black uppercase text-amber-300">
+                                                                {empresa.plan_codigo || 'sin plan'}
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="px-4 py-4">
+                                                            <span className={`rounded-full border px-3 py-1 text-xs font-bold ${estadoSuscripcion.clase}`}>
+                                                                {estadoSuscripcion.texto}
+                                                            </span>
+                                                        </td>
+
+                                                        <td className="px-4 py-4 text-center font-black text-cyan-300">
+                                                            {empresa.total_usuarios || 0}
+                                                        </td>
+
+                                                        <td className="px-4 py-4 text-center font-black text-emerald-300">
+                                                            {empresa.total_activos || 0}
+                                                        </td>
+
+                                                        <td className="px-4 py-4">
+                                                            <span
+                                                                className={`rounded-full px-3 py-1 text-xs font-black ${empresa.empresa_activa
+                                                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                                                    : 'bg-red-500/20 text-red-300'
+                                                                    }`}
+                                                            >
+                                                                {empresa.empresa_activa ? 'Activa' : 'Inactiva'}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {/* Módulo Solicitudes de prueba gratuita */}
+                {moduloDuenoActivo === 'solicitudes' && (
+                    <div className="rounded-3xl border border-cyan-500/20 bg-slate-950/70 p-6 shadow-xl shadow-cyan-500/5">
+                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-cyan-300">
+                                    🧪 Módulo conectado
+                                </p>
+
+                                <h4 className="mt-1 text-2xl font-black text-white">
+                                    Solicitudes de prueba gratuita
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Revisa los contactos que llegan desde el formulario del home y gestiona su avance comercial.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={cargarSolicitudesPrueba}
+                                disabled={cargandoSolicitudesPrueba}
+                                className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {cargandoSolicitudesPrueba ? 'Actualizando...' : 'Actualizar solicitudes'}
+                            </button>
+                        </div>
+
+                        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-5">
+                            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                <p className="text-sm text-slate-400">Total</p>
+                                <p className="mt-2 text-3xl font-black text-cyan-300">
+                                    {solicitudesPrueba.length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5">
+                                <p className="text-sm text-slate-400">Nuevas</p>
+                                <p className="mt-2 text-3xl font-black text-blue-300">
+                                    {solicitudesPrueba.filter((s) => s.estado === 'nueva').length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                                <p className="text-sm text-slate-400">Contactadas</p>
+                                <p className="mt-2 text-3xl font-black text-emerald-300">
+                                    {solicitudesPrueba.filter((s) => s.estado === 'contactada').length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
+                                <p className="text-sm text-slate-400">En evaluación</p>
+                                <p className="mt-2 text-3xl font-black text-amber-300">
+                                    {solicitudesPrueba.filter((s) => s.estado === 'en_evaluacion').length}
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-5">
+                                <p className="text-sm text-slate-400">Convertidas</p>
+                                <p className="mt-2 text-3xl font-black text-purple-300">
+                                    {solicitudesPrueba.filter((s) => s.estado === 'convertida').length}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="mb-5 flex flex-wrap gap-3">
+                            {[
+                                { codigo: 'todas', nombre: 'Todas' },
+                                { codigo: 'nueva', nombre: 'Nuevas' },
+                                { codigo: 'contactada', nombre: 'Contactadas' },
+                                { codigo: 'en_evaluacion', nombre: 'En evaluación' },
+                                { codigo: 'convertida', nombre: 'Convertidas' },
+                                { codigo: 'rechazada', nombre: 'Rechazadas' },
+                            ].map((filtro) => (
+                                <button
+                                    key={filtro.codigo}
+                                    type="button"
+                                    onClick={() => setFiltroEstadoSolicitud(filtro.codigo as any)}
+                                    className={`rounded-2xl border px-4 py-2 text-sm font-black transition-all ${filtroEstadoSolicitud === filtro.codigo
+                                        ? 'border-cyan-400/50 bg-cyan-500/20 text-cyan-200'
+                                        : 'border-slate-700 bg-slate-900/40 text-slate-400 hover:border-cyan-500/30 hover:text-cyan-300'
+                                        }`}
+                                >
+                                    {filtro.nombre}
+                                </button>
+                            ))}
+                        </div>
+
+                        {solicitudesFiltradas.length === 0 ? (
+                            <div className="rounded-3xl border border-slate-700/60 bg-slate-950/80 p-8 text-center">
+                                <p className="text-4xl">📭</p>
+                                <h5 className="mt-3 text-xl font-black text-white">
+                                    No hay solicitudes para mostrar
+                                </h5>
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Cuando alguien complete el formulario del home, aparecerá aquí.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-3xl border border-slate-800">
+                                <table className="w-full min-w-[1100px] text-left text-sm">
+                                    <thead className="bg-slate-900/90">
+                                        <tr className="border-b border-slate-800 text-xs uppercase tracking-wide text-slate-500">
+                                            <th className="px-4 py-4">Contacto</th>
+                                            <th className="px-4 py-4">Empresa / RUT</th>
+                                            <th className="px-4 py-4">Ubicación</th>
+                                            <th className="px-4 py-4">Estado</th>
+                                            <th className="px-4 py-4">Fecha</th>
+                                            <th className="px-4 py-4">Acciones</th>
+                                        </tr>
+                                    </thead>
+
+                                    <tbody>
+                                        {solicitudesFiltradas.map((solicitud) => {
+                                            const estadoVisual = obtenerEstadoSolicitudVisual(solicitud.estado);
+
+                                            return (
+                                                <tr
+                                                    key={`solicitud-${solicitud.id}`}
+                                                    className="border-b border-slate-900 transition-colors hover:bg-white/[0.02]"
+                                                >
+                                                    <td className="px-4 py-4">
+                                                        <p className="font-black text-white">
+                                                            {solicitud.nombre || 'Sin nombre'}
+                                                        </p>
+
+                                                        <p className="text-xs text-cyan-300">
+                                                            {solicitud.correo || 'Sin correo'}
+                                                        </p>
+
+                                                        <p className="text-xs text-slate-500">
+                                                            {solicitud.telefono || 'Sin teléfono'}
+                                                        </p>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <p className="font-bold text-slate-200">
+                                                            {solicitud.nombre || 'Sin empresa'}
+                                                        </p>
+
+                                                        <p className="text-xs text-slate-500">
+                                                            RUT: {solicitud.rut || 'Sin RUT'}
+                                                        </p>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <p className="font-bold text-slate-300">
+                                                            {solicitud.region || 'Sin región'}
+                                                        </p>
+
+                                                        <p className="text-xs text-slate-500">
+                                                            {solicitud.pais || 'Sin país'}
+                                                        </p>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${estadoVisual.clase}`}>
+                                                            {estadoVisual.icono} {estadoVisual.texto}
+                                                        </span>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <p className="font-bold text-slate-300">
+                                                            {solicitud.created_at
+                                                                ? new Date(solicitud.created_at).toLocaleDateString('es-CL')
+                                                                : 'Sin fecha'}
+                                                        </p>
+
+                                                        <p className="text-xs text-slate-500">
+                                                            {solicitud.created_at
+                                                                ? new Date(solicitud.created_at).toLocaleTimeString('es-CL', {
+                                                                    hour: '2-digit',
+                                                                    minute: '2-digit',
+                                                                })
+                                                                : ''}
+                                                        </p>
+                                                    </td>
+
+                                                    <td className="px-4 py-4">
+                                                        <div className="flex flex-col gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => abrirModalConvertirSolicitud(solicitud)}
+                                                                disabled={
+                                                                    guardandoSolicitudPrueba ||
+                                                                    convirtiendoSolicitud ||
+                                                                    solicitud.estado === 'convertida'
+                                                                }
+                                                                className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-300 transition-all hover:border-emerald-400/60 hover:bg-emerald-500/20 hover:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-40"
+                                                            >
+                                                                {solicitud.estado === 'convertida'
+                                                                    ? '✅ Demo creado'
+                                                                    : '🚀 Crear demo'}
+                                                            </button>
+
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                {([
+                                                                    {
+                                                                        codigo: 'contactada',
+                                                                        texto: 'Contactada',
+                                                                        icono: '📞',
+                                                                        clase: 'hover:border-emerald-500/40 hover:bg-emerald-500/10 hover:text-emerald-300',
+                                                                    },
+                                                                    {
+                                                                        codigo: 'en_evaluacion',
+                                                                        texto: 'Evaluar',
+                                                                        icono: '🔎',
+                                                                        clase: 'hover:border-amber-500/40 hover:bg-amber-500/10 hover:text-amber-300',
+                                                                    },
+                                                                    {
+                                                                        codigo: 'convertida',
+                                                                        texto: 'Convertida',
+                                                                        icono: '✅',
+                                                                        clase: 'hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-purple-300',
+                                                                    },
+                                                                    {
+                                                                        codigo: 'rechazada',
+                                                                        texto: 'Rechazar',
+                                                                        icono: '❌',
+                                                                        clase: 'hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300',
+                                                                    },
+                                                                ] as {
+                                                                    codigo: EstadoSolicitudPrueba;
+                                                                    texto: string;
+                                                                    icono: string;
+                                                                    clase: string;
+                                                                }[]).map((estado) => {
+                                                                    const activo = solicitud.estado === estado.codigo;
+
+                                                                    return (
+                                                                        <button
+                                                                            key={`${solicitud.id}-${estado.codigo}`}
+                                                                            type="button"
+                                                                            onClick={() =>
+                                                                                cambiarEstadoSolicitudPrueba(
+                                                                                    solicitud.id,
+                                                                                    estado.codigo
+                                                                                )
+                                                                            }
+                                                                            disabled={guardandoSolicitudPrueba || activo}
+                                                                            className={`rounded-xl border px-3 py-2 text-xs font-black transition-all disabled:cursor-not-allowed disabled:opacity-50 ${activo
+                                                                                ? 'border-cyan-500/40 bg-cyan-500/20 text-cyan-200'
+                                                                                : `border-slate-700 bg-slate-900 text-slate-300 ${estado.clase}`
+                                                                                }`}
+                                                                        >
+                                                                            {activo ? 'Actual' : `${estado.icono} ${estado.texto}`}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {moduloDuenoActivo === 'diagnostico' && (
+                    <div className="rounded-3xl border border-blue-500/20 bg-slate-950/70 p-6 shadow-xl shadow-blue-500/5">
+                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-blue-300">🧪 Módulo conectado</p>
+
+                                <h4 className="mt-1 text-2xl font-black text-white">
+                                    Diagnóstico general del sistema
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Revisión automática de empresas, suscripciones, activos y vínculos de usuarios.
+                                </p>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={cargarDiagnosticoDueno}
+                                className="rounded-2xl border border-blue-500/30 bg-blue-500/10 px-5 py-3 text-sm font-bold text-blue-300 transition-all hover:bg-blue-500/20"
+                            >
+                                Actualizar diagnóstico
+                            </button>
+                        </div>
+
+                        {cargandoDiagnosticoDueno ? (
+                            <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-8 text-center">
+                                <div className="mx-auto mb-3 h-10 w-10 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+
+                                <p className="text-sm font-bold text-blue-300">
+                                    Cargando diagnóstico...
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Revisando estado general de FleetVision.
+                                </p>
+                            </div>
+                        ) : diagnosticoDueno.length === 0 ? (
+                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-6 text-center">
+                                <p className="text-sm font-bold text-amber-300">
+                                    No hay datos de diagnóstico para mostrar.
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Presiona “Actualizar diagnóstico” para volver a consultar.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                {diagnosticoDueno.map((item, index) => {
+                                    const esOk = item.severidad === 'ok';
+                                    const esAlta = item.severidad === 'alta';
+
+                                    return (
+                                        <div
+                                            key={`${item.categoria}-${item.detalle}-${index}`}
+                                            className={`rounded-2xl border p-5 ${esOk
+                                                ? 'border-emerald-500/20 bg-emerald-500/10'
+                                                : esAlta
+                                                    ? 'border-red-500/20 bg-red-500/10'
+                                                    : 'border-amber-500/20 bg-amber-500/10'
+                                                }`}
+                                        >
+                                            <div className="mb-3 flex items-center justify-between gap-3">
+                                                <span
+                                                    className={`rounded-full px-3 py-1 text-xs font-bold ${esOk
+                                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                                        : esAlta
+                                                            ? 'bg-red-500/20 text-red-300'
+                                                            : 'bg-amber-500/20 text-amber-300'
+                                                        }`}
+                                                >
+                                                    {item.severidad.toUpperCase()}
+                                                </span>
+
+                                                <span className="text-2xl font-black text-white">
+                                                    {item.cantidad}
+                                                </span>
+                                            </div>
+
+                                            <p className="text-sm font-bold text-white">
+                                                {item.categoria}
+                                            </p>
+
+                                            <p className="mt-1 text-sm text-slate-400">
+                                                {item.detalle}
+                                            </p>
+
+                                            <p
+                                                className={`mt-4 text-xs font-bold ${esOk
+                                                    ? 'text-emerald-300'
+                                                    : esAlta
+                                                        ? 'text-red-300'
+                                                        : 'text-amber-300'
+                                                    }`}
+                                            >
+                                                {esOk
+                                                    ? '✅ Sin problemas detectados'
+                                                    : '⚠️ Requiere revisión'}
+                                            </p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Módulos próximos */}
+                {moduloDuenoActivo !== 'resumen' &&
+                    moduloDuenoActivo !== 'empresas' &&
+                    moduloDuenoActivo !== 'usuarios' &&
+                    moduloDuenoActivo !== 'planes' &&
+                    moduloDuenoActivo !== 'solicitudes' &&
+                    moduloDuenoActivo !== 'roles' &&
+                    moduloDuenoActivo !== 'diagnostico' && (
+                        <div className="rounded-3xl border border-amber-500/20 bg-amber-500/10 p-6">
+                            <h4 className="text-xl font-black text-amber-300">
+                                🚧 Módulo en preparación
+                            </h4>
+
+                            <p className="mt-2 text-sm text-slate-400">
+                                Este módulo ya quedó reservado en la estructura del Panel Dueño.
+                                Lo conectaremos después con funciones seguras de Supabase.
+                            </p>
+                        </div>
+                    )}
+
+                {/* Resumen técnico */}
+                {moduloDuenoActivo === 'resumen' && (
+                    <div className="rounded-3xl border border-cyan-500/20 bg-slate-950/70 p-6">
+                        <h4 className="text-xl font-black text-white">
+                            📌 Próximo paso técnico
+                        </h4>
+
+                        <p className="mt-2 text-sm text-slate-400">
+                            El Panel Dueño ya detecta el rol global. Ahora los módulos Empresas, Usuarios
+                            y Diagnóstico están conectados a Supabase de forma segura.
+                        </p>
+                    </div>
+                )}
+
+                {/* Modal Gestión Empresa */}
+                {/* Modal Nueva Empresa */}
+                {mostrarModalNuevaEmpresa && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950/30 p-6 shadow-2xl shadow-emerald-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-bold text-emerald-300">
+                                        🏢 Nueva empresa
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Crear empresa en FleetVision
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Registra una empresa nueva con plan inicial y estado de suscripción.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalNuevaEmpresa(false)}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Nombre empresa *
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={nombreNuevaEmpresaRef.current}
+                                        onChange={(e) => {
+                                            nombreNuevaEmpresaRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-emerald-500"
+                                        placeholder="Ej: Transportes Avalos"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        RUT empresa
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={rutNuevaEmpresaRef.current}
+                                        onChange={(e) => {
+                                            rutNuevaEmpresaRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-emerald-500"
+                                        placeholder="Ej: 76.123.456-7"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Plan inicial
+                                    </label>
+
+                                    <select
+                                        value={nuevaEmpresaDueno.plan_codigo}
+                                        onChange={(e) =>
+                                            setNuevaEmpresaDueno({
+                                                ...nuevaEmpresaDueno,
+                                                plan_codigo: e.target.value as NuevaEmpresaDueno['plan_codigo'],
+                                            })
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors focus:border-emerald-500"
+                                    >
+                                        <option value="gratis">Gratis</option>
+                                        <option value="basico">Básico</option>
+                                        <option value="pro">Pro</option>
+                                        <option value="empresa">Empresa</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Estado suscripción
+                                    </label>
+
+                                    <select
+                                        value={nuevaEmpresaDueno.estado_suscripcion}
+                                        onChange={(e) =>
+                                            setNuevaEmpresaDueno({
+                                                ...nuevaEmpresaDueno,
+                                                estado_suscripcion: e.target.value as NuevaEmpresaDueno['estado_suscripcion'],
+                                            })
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors focus:border-emerald-500"
+                                    >
+                                        <option value="trial">Trial</option>
+                                        <option value="activa">Activa</option>
+                                        <option value="vencida">Vencida</option>
+                                        <option value="cancelada">Cancelada</option>
+                                        <option value="suspendida">Suspendida</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
+                                <label className="flex cursor-pointer items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-black text-white">
+                                            Empresa activa
+                                        </p>
+
+                                        <p className="mt-1 text-xs text-slate-500">
+                                            Si está activa, podrá aparecer en la gestión normal del sistema.
+                                        </p>
+                                    </div>
+
+                                    <input
+                                        type="checkbox"
+                                        checked={nuevaEmpresaDueno.activa}
+                                        onChange={(e) =>
+                                            setNuevaEmpresaDueno({
+                                                ...nuevaEmpresaDueno,
+                                                activa: e.target.checked,
+                                            })
+                                        }
+                                        className="h-5 w-5 accent-emerald-500"
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalNuevaEmpresa(false)}
+                                    disabled={guardandoNuevaEmpresa}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={crearEmpresaDueno}
+                                    disabled={guardandoNuevaEmpresa}
+                                    className="rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-5 py-3 text-sm font-black text-emerald-300 transition-all hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoNuevaEmpresa ? 'Creando empresa...' : 'Crear empresa'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {empresaGestionSeleccionada && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950/40 p-6 shadow-2xl shadow-cyan-500/10">
+
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-bold text-cyan-300">
+                                        🏢 Gestión de empresa
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        {empresaGestionSeleccionada.empresa}
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        ID: {empresaGestionSeleccionada.empresa_id}
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setEmpresaGestionSeleccionada(null)}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                                    <p className="text-xs text-slate-400">Plan actual</p>
+
+                                    <p className="mt-1 text-xl font-black text-cyan-300">
+                                        {empresaGestionSeleccionada.nombre_plan ||
+                                            empresaGestionSeleccionada.plan_codigo ||
+                                            'Sin plan'}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4">
+                                    <p className="text-xs text-slate-400">Suscripción</p>
+
+                                    <p className="mt-1 text-xl font-black text-purple-300">
+                                        {empresaGestionSeleccionada.estado_suscripcion || 'Sin estado'}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                    <p className="text-xs text-slate-400">Estado empresa</p>
+
+                                    <p
+                                        className={`mt-1 text-xl font-black ${empresaGestionSeleccionada.empresa_activa
+                                            ? 'text-emerald-300'
+                                            : 'text-red-300'
+                                            }`}
+                                    >
+                                        {empresaGestionSeleccionada.empresa_activa ? 'Activa' : 'Inactiva'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
+                                <div>
+                                    <h4 className="text-lg font-black text-white">
+                                        💳 Cambiar plan
+                                    </h4>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Selecciona el plan que tendrá esta empresa. El trial usa la configuración actual de FleetVision.
+                                    </p>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                                    {(['gratis', 'basico', 'pro', 'empresa'] as const).map((plan) => (
+                                        <button
+                                            key={plan}
+                                            type="button"
+                                            disabled={guardandoGestionEmpresa}
+                                            onClick={() => {
+                                                if (
+                                                    confirm(
+                                                        `¿Cambiar ${empresaGestionSeleccionada.empresa} al plan ${plan}?`
+                                                    )
+                                                ) {
+                                                    cambiarPlanEmpresaDueno(
+                                                        empresaGestionSeleccionada.empresa_id,
+                                                        plan
+                                                    );
+                                                }
+                                            }}
+                                            className={`rounded-2xl border px-4 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${empresaGestionSeleccionada.plan_codigo === plan
+                                                ? 'border-cyan-500/60 bg-cyan-500/20 text-cyan-200 shadow-lg shadow-cyan-500/10'
+                                                : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
+                                                }`}
+                                        >
+                                            {plan.toUpperCase()}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="mt-4 rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
+                                <h4 className="text-lg font-black text-white">
+                                    📌 Estado de suscripción
+                                </h4>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Controla si la empresa está en trial, activa, vencida, cancelada o suspendida.
+                                </p>
+
+                                <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                                    {(['trial', 'activa', 'vencida', 'cancelada', 'suspendida'] as const).map(
+                                        (estado) => (
+                                            <button
+                                                key={estado}
+                                                type="button"
+                                                disabled={guardandoGestionEmpresa}
+                                                onClick={() =>
+                                                    abrirModalConfirmarSuscripcion(
+                                                        empresaGestionSeleccionada.empresa_id,
+                                                        empresaGestionSeleccionada.empresa,
+                                                        estado
+                                                    )
+                                                }
+                                                className={`rounded-2xl border px-4 py-3 text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${empresaGestionSeleccionada.estado_suscripcion === estado
+                                                    ? 'border-purple-500/60 bg-purple-500/20 text-purple-200 shadow-lg shadow-purple-500/10'
+                                                    : 'border-purple-500/20 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20'
+                                                    }`}
+                                            >
+                                                {estado.toUpperCase()}
+                                            </button>
+                                        )
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
+                                    <h4 className="text-lg font-black text-white">
+                                        ⏳ Trial
+                                    </h4>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Puedes agregar días o fijar una fecha exacta para el término del trial.
+                                    </p>
+
+                                    <div className="mt-4 grid grid-cols-1 gap-3">
+                                        <button
+                                            type="button"
+                                            disabled={guardandoGestionEmpresa}
+                                            onClick={() =>
+                                                extenderTrialEmpresaDueno(
+                                                    empresaGestionSeleccionada.empresa_id
+                                                )
+                                            }
+                                            className="w-full rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm font-bold text-amber-300 transition-all hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            Extender trial por días
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            disabled={guardandoGestionEmpresa}
+                                            onClick={() =>
+                                                fijarFechaTrialEmpresaDueno(
+                                                    empresaGestionSeleccionada.empresa_id
+                                                )
+                                            }
+                                            className="w-full rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-sm font-bold text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            Fijar fecha exacta
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
+                                    <h4 className="text-lg font-black text-white">
+                                        🏢 Empresa
+                                    </h4>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Activa o desactiva el acceso de esta empresa.
+                                    </p>
+
+                                    <button
+                                        type="button"
+                                        disabled={guardandoGestionEmpresa}
+                                        onClick={() => {
+                                            const nuevoEstado =
+                                                !empresaGestionSeleccionada.empresa_activa;
+
+                                            if (
+                                                confirm(
+                                                    `${nuevoEstado ? '¿Activar' : '¿Desactivar'} empresa ${empresaGestionSeleccionada.empresa}?`
+                                                )
+                                            ) {
+                                                cambiarEstadoEmpresaDueno(
+                                                    empresaGestionSeleccionada.empresa_id,
+                                                    nuevoEstado
+                                                );
+                                            }
+                                        }}
+                                        className={`mt-4 w-full rounded-2xl border px-4 py-3 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${empresaGestionSeleccionada.empresa_activa
+                                            ? 'border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                                            : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                            }`}
+                                    >
+                                        {empresaGestionSeleccionada.empresa_activa
+                                            ? 'Desactivar empresa'
+                                            : 'Activar empresa'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {guardandoGestionEmpresa && (
+                                <div className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-center text-sm font-bold text-cyan-300">
+                                    Guardando cambios...
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Modal Vincular Usuario */}
+                <button
+                    type="button"
+                    onClick={abrirModalCrearUsuario}
+                    className="rounded-2xl border border-purple-500/30 bg-purple-500/10 px-5 py-3 text-sm font-bold text-purple-300 transition-all hover:bg-purple-500/20"
+                >
+                    + Crear usuario nuevo
+                </button>
+                {/* Modal Crear Usuario Nuevo */}
+                {mostrarModalCrearUsuario && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-3xl border border-purple-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-purple-950/30 p-6 shadow-2xl shadow-purple-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-bold text-purple-300">
+                                        👤 Crear usuario nuevo
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Crear usuario en FleetVision
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Crea un usuario real en Supabase Auth, asígnalo a una empresa y define su rol inicial.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalCrearUsuario(false)}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Nombre de usuario *
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={usernameCrearUsuarioRef.current}
+                                        onChange={(e) => {
+                                            usernameCrearUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-purple-500"
+                                        placeholder="Ej: tecnico1"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Apellido / nombre completo
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={apellidoCrearUsuarioRef.current}
+                                        onChange={(e) => {
+                                            apellidoCrearUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-purple-500"
+                                        placeholder="Ej: Juan Pérez"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Correo *
+                                    </label>
+
+                                    <input
+                                        type="email"
+                                        defaultValue={emailCrearUsuarioRef.current}
+                                        onChange={(e) => {
+                                            emailCrearUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-purple-500"
+                                        placeholder="usuario@empresa.cl"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Contraseña temporal *
+                                    </label>
+
+                                    <input
+                                        type="password"
+                                        defaultValue={passwordCrearUsuarioRef.current}
+                                        onChange={(e) => {
+                                            passwordCrearUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-purple-500"
+                                        placeholder="Mínimo 6 caracteres"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Empresa *
+                                    </label>
+
+                                    <select
+                                        value={empresaCrearUsuario}
+                                        onChange={(e) => setEmpresaCrearUsuario(e.target.value)}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors focus:border-purple-500"
+                                    >
+                                        <option value="">Seleccionar empresa</option>
+
+                                        {empresasDueno.map((empresa) => (
+                                            <option key={empresa.empresa_id} value={empresa.empresa_id}>
+                                                {empresa.empresa} · {empresa.plan_codigo || 'sin plan'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Rol inicial *
+                                    </label>
+
+                                    <select
+                                        value={rolCrearUsuario}
+                                        onChange={(e) => setRolCrearUsuario(e.target.value)}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors focus:border-purple-500"
+                                    >
+                                        <option value="">Seleccionar rol</option>
+
+                                        {rolesEmpresaDueno
+                                            .filter((rol) =>
+                                                ['administrador', 'soporte', 'tecnico'].includes(rol.rol_codigo)
+                                            )
+                                            .map((rol) => (
+                                                <option key={rol.rol_id} value={rol.rol_id}>
+                                                    {rol.rol_nombre}
+                                                </option>
+                                            ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
+                                <label className="flex cursor-pointer items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-sm font-black text-white">
+                                            Usuario activo
+                                        </p>
+
+                                        <p className="mt-1 text-xs text-slate-500">
+                                            Si está activo, podrá usar el sistema inmediatamente.
+                                        </p>
+                                    </div>
+
+                                    <input
+                                        type="checkbox"
+                                        checked={activoCrearUsuario}
+                                        onChange={(e) => setActivoCrearUsuario(e.target.checked)}
+                                        className="h-5 w-5 accent-purple-500"
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                <p className="text-sm font-bold text-amber-300">
+                                    🔐 Creación segura
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-400">
+                                    El usuario se crea en Supabase Auth usando una ruta segura del servidor. Luego se registra en la tabla usuarios, se vincula a la empresa y se valida el límite del plan.
+                                </p>
+                            </div>
+
+                            {guardandoCrearUsuario && (
+                                <div className="mt-4 rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 text-center text-sm font-bold text-purple-300">
+                                    Creando usuario...
+                                </div>
+                            )}
+
+                            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalCrearUsuario(false)}
+                                    disabled={guardandoCrearUsuario}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={crearUsuarioNuevoDueno}
+                                    disabled={guardandoCrearUsuario}
+                                    className="rounded-2xl border border-purple-500/30 bg-purple-500/20 px-5 py-3 text-sm font-black text-purple-300 transition-all hover:bg-purple-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoCrearUsuario ? 'Creando usuario...' : 'Crear usuario'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {mostrarModalVincularUsuario && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-5xl max-h-[92vh] overflow-y-auto rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950/30 p-6 shadow-2xl shadow-emerald-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-bold text-emerald-300">
+                                        👥 Añadir usuario
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Vincular usuario a empresa
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Busca un usuario existente, selecciona empresa y asigna rol.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalVincularUsuario(false)}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
+                                <h4 className="text-lg font-black text-white">
+                                    🔎 Buscar usuario existente
+                                </h4>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Puedes buscar por username, apellido, usuario_id o auth_id.
+                                </p>
+
+                                <div className="mt-4 flex flex-col gap-3 md:flex-row">
+                                    <input
+                                        type="text"
+                                        defaultValue={busquedaUsuarioVincularRef.current}
+                                        onChange={(e) => {
+                                            busquedaUsuarioVincularRef.current = e.target.value;
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                buscarUsuariosParaVincular();
+                                            }
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-emerald-500"
+                                        placeholder="Ej: myke, avalos, uuid..."
+                                    />
+
+                                    <button
+                                        type="button"
+                                        onClick={buscarUsuariosParaVincular}
+                                        disabled={buscandoUsuariosVincular}
+                                        className="rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-5 py-3 text-sm font-black text-emerald-300 transition-all hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {buscandoUsuariosVincular ? 'Buscando...' : 'Buscar'}
+                                    </button>
+                                </div>
+
+                                <div className="mt-4 max-h-64 overflow-y-auto rounded-2xl border border-slate-800 bg-black/20">
+                                    {usuariosParaVincular.length === 0 ? (
+                                        <div className="p-5 text-center text-sm text-slate-500">
+                                            Busca un usuario para mostrar resultados.
+                                        </div>
+                                    ) : (
+                                        usuariosParaVincular.map((usuario) => {
+                                            const seleccionado =
+                                                usuarioSeleccionadoParaVincular?.usuario_id === usuario.usuario_id;
+
+                                            return (
+                                                <button
+                                                    key={usuario.usuario_id}
+                                                    type="button"
+                                                    onClick={() => setUsuarioSeleccionadoParaVincular(usuario)}
+                                                    className={`w-full border-b border-slate-800 p-4 text-left transition-all last:border-b-0 ${seleccionado
+                                                        ? 'bg-emerald-500/20 text-emerald-200'
+                                                        : 'text-slate-300 hover:bg-white/[0.03]'
+                                                        }`}
+                                                >
+                                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                                        <div>
+                                                            <p className="font-black text-white">
+                                                                {usuario.username || 'Usuario sin username'}
+                                                            </p>
+
+                                                            <p className="text-xs text-slate-500">
+                                                                {usuario.apellido || 'Sin apellido'} · Rol texto: {usuario.usuario_rol_texto || 'Sin rol'}
+                                                            </p>
+
+                                                            <p className="mt-1 text-[10px] text-slate-600">
+                                                                ID: {usuario.usuario_id}
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span className={`rounded-full px-2 py-1 text-[10px] font-black ${usuario.usuario_activo
+                                                                ? 'bg-emerald-500/20 text-emerald-300'
+                                                                : 'bg-red-500/20 text-red-300'
+                                                                }`}>
+                                                                {usuario.usuario_activo ? 'Activo' : 'Inactivo'}
+                                                            </span>
+
+                                                            <span className="rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-black text-cyan-300">
+                                                                {usuario.total_empresas} empresa(s)
+                                                            </span>
+
+                                                            {seleccionado && (
+                                                                <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-[10px] font-black text-emerald-300">
+                                                                    Seleccionado
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Empresa destino
+                                    </label>
+
+                                    <select
+                                        value={empresaSeleccionadaParaVincular}
+                                        onChange={(e) => setEmpresaSeleccionadaParaVincular(e.target.value)}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors focus:border-emerald-500"
+                                    >
+                                        <option value="">Seleccionar empresa</option>
+
+                                        {empresasDueno.map((empresa) => (
+                                            <option key={empresa.empresa_id} value={empresa.empresa_id}>
+                                                {empresa.empresa} · {empresa.plan_codigo || 'sin plan'}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-sm font-bold text-slate-300">
+                                        Rol en la empresa
+                                    </label>
+
+                                    <select
+                                        value={rolSeleccionadoParaVincular}
+                                        onChange={(e) => setRolSeleccionadoParaVincular(e.target.value)}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none transition-colors focus:border-emerald-500"
+                                    >
+                                        <option value="">Seleccionar rol</option>
+
+                                        {rolesEmpresaDueno
+                                            .filter((rol) =>
+                                                ['administrador', 'soporte', 'tecnico'].includes(rol.rol_codigo)
+                                            )
+                                            .map((rol) => (
+                                                <option key={rol.rol_id} value={rol.rol_id}>
+                                                    {rol.rol_nombre}
+                                                </option>
+                                            ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                <p className="text-sm font-bold text-amber-300">
+                                    📌 Validación automática
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-400">
+                                    Al vincular, Supabase validará si el plan permite ese rol. Si el plan está en Gratis, solo permitirá 1 administrador y bloqueará soporte/técnico.
+                                </p>
+                            </div>
+
+                            {guardandoVincularUsuario && (
+                                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-center text-sm font-bold text-emerald-300">
+                                    Vinculando usuario...
+                                </div>
+                            )}
+
+                            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setMostrarModalVincularUsuario(false)}
+                                    disabled={guardandoVincularUsuario}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={vincularUsuarioEmpresaDueno}
+                                    disabled={guardandoVincularUsuario}
+                                    className="rounded-2xl border border-emerald-500/30 bg-emerald-500/20 px-5 py-3 text-sm font-black text-emerald-300 transition-all hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoVincularUsuario ? 'Vinculando usuario...' : 'Vincular usuario'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Modal Gestión Usuario */}
+                {usuarioGestionSeleccionado && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-emerald-950/30 p-6 shadow-2xl shadow-emerald-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-bold text-emerald-300">
+                                        👥 Gestión de usuario
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        {usuarioGestionSeleccionado.username || 'Usuario sin username'}
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        {usuarioGestionSeleccionado.apellido || 'Sin apellido'} · {usuarioGestionSeleccionado.empresa}
+                                    </p>
+
+                                    <p className="mt-1 text-[10px] text-slate-600">
+                                        Usuario empresa ID: {usuarioGestionSeleccionado.usuario_empresa_id}
+                                    </p>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (!usuarioGestionSeleccionado) return;
+
+                                            usernameEditarUsuarioRef.current = usuarioGestionSeleccionado.username || '';
+                                            apellidoEditarUsuarioRef.current = usuarioGestionSeleccionado.apellido || '';
+                                            emailEditarUsuarioRef.current = '';
+
+                                            setFormEditarUsuario({
+                                                usuario_id: usuarioGestionSeleccionado.usuario_id || '',
+                                                auth_id: usuarioGestionSeleccionado.auth_id || '',
+                                                username: usuarioGestionSeleccionado.username || '',
+                                                apellido: usuarioGestionSeleccionado.apellido || '',
+                                                email: '',
+                                                activo: usuarioGestionSeleccionado.usuario_activo ?? true,
+                                            });
+
+                                            setModalEditarUsuarioAbierto(true);
+                                        }}
+                                        className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-sm font-black text-cyan-300 transition-all hover:border-cyan-400/60 hover:bg-cyan-500/20 hover:text-cyan-200"
+                                    >
+                                        ✏️ Editar usuario
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={abrirModalBorrarUsuario}
+                                        disabled={borrandoUsuario}
+                                        className="mt-4 w-full rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-black text-red-300 transition-all hover:border-red-400/60 hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {borrandoUsuario ? 'Revisando usuario...' : '🗑️ Borrar usuario inteligente'}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setUsuarioGestionSeleccionado(null)}
+                                        className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                    >
+                                        Cerrar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                    <p className="text-xs text-slate-400">Empresa</p>
+
+                                    <p className="mt-1 text-xl font-black text-emerald-300">
+                                        {usuarioGestionSeleccionado.empresa}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                                    <p className="text-xs text-slate-400">Plan empresa</p>
+
+                                    <p className="mt-1 text-xl font-black text-cyan-300">
+                                        {usuarioGestionSeleccionado.plan_codigo || 'Sin plan'}
+                                    </p>
+                                </div>
+
+                                <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4">
+                                    <p className="text-xs text-slate-400">Rol actual</p>
+
+                                    <p className="mt-1 text-xl font-black text-purple-300">
+                                        {usuarioGestionSeleccionado.rol_nombre || 'Sin rol'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="mt-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        <h4 className="text-lg font-black text-white">
+                                            🏢 Cambiar empresa del usuario
+                                        </h4>
+
+                                        <p className="mt-1 text-xs text-slate-400">
+                                            Mueve este usuario a otra empresa y asigna el rol que tendrá en esa empresa.
+                                        </p>
+                                    </div>
+
+                                    <span className="rounded-full border border-cyan-500/30 bg-slate-950/60 px-3 py-1 text-xs font-black text-cyan-300">
+                                        Actual: {usuarioGestionSeleccionado.empresa}
+                                    </span>
+                                </div>
+
+                                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div>
+                                        <label className="mb-2 block text-xs font-bold text-slate-400">
+                                            Empresa destino
+                                        </label>
+
+                                        <select
+                                            value={empresaDestinoUsuario || usuarioGestionSeleccionado.empresa_id || ''}
+                                            onChange={(e) => setEmpresaDestinoUsuario(e.target.value)}
+                                            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-all focus:border-cyan-500"
+                                        >
+                                            <option value="">Selecciona empresa</option>
+
+                                            {empresasDueno
+                                                .filter((empresa) => empresa.empresa_activa)
+                                                .map((empresa) => (
+                                                    <option key={empresa.empresa_id} value={empresa.empresa_id}>
+                                                        {empresa.empresa}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="mb-2 block text-xs font-bold text-slate-400">
+                                            Rol en la empresa destino
+                                        </label>
+
+                                        <select
+                                            value={rolDestinoUsuario}
+                                            onChange={(e) => setRolDestinoUsuario(e.target.value)}
+                                            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-all focus:border-cyan-500"
+                                        >
+                                            <option value="Administrador">Administrador</option>
+                                            <option value="Soporte">Soporte</option>
+                                            <option value="Tecnico">Técnico</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-xs text-slate-500">
+                                        Esto moverá el vínculo del usuario en usuarios_empresas y guardará el rol en la columna nombre.
+                                    </p>
+
+                                    <button
+                                        type="button"
+                                        disabled={guardandoCambioEmpresaUsuario}
+                                        onClick={() => setModalConfirmarCambioEmpresaUsuario(true)}
+                                        className="rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-3 text-sm font-black text-cyan-300 transition-all hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {guardandoCambioEmpresaUsuario ? 'Guardando cambio...' : 'Guardar cambio de empresa'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
+                                <h4 className="text-lg font-black text-white">
+                                    🔐 Cambiar rol de empresa
+                                </h4>
+
+                                <p className="mt-1 text-xs text-slate-500">
+                                    El sistema respetará automáticamente los límites del plan actual.
+                                </p>
+
+                                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                    {rolesEmpresaDueno
+                                        .filter((rol) =>
+                                            ['administrador', 'soporte', 'tecnico'].includes(rol.rol_codigo)
+                                        )
+                                        .map((rol) => {
+                                            const estadoRol = obtenerEstadoVisualRol(
+                                                usuarioGestionSeleccionado,
+                                                rol
+                                            );
+
+                                            const esRolActual = usuarioGestionSeleccionado.rol_id === rol.rol_id;
+                                            const bloqueado = estadoRol.bloqueado;
+
+                                            return (
+                                                <button
+                                                    key={rol.rol_id}
+                                                    type="button"
+                                                    disabled={guardandoGestionUsuario || bloqueado || esRolActual}
+                                                    onClick={() => {
+                                                        if (bloqueado) {
+                                                            mostrarModalSistema(
+                                                                'advertencia',
+                                                                'Rol bloqueado por el plan',
+                                                                estadoRol.detalle,
+                                                                'Puedes cambiar el plan de la empresa desde el módulo Empresas para habilitar más roles.'
+                                                            );
+                                                            return;
+                                                        }
+
+                                                        if (
+                                                            confirm(
+                                                                `¿Cambiar a ${usuarioGestionSeleccionado.username || 'este usuario'} al rol ${rol.rol_nombre}?`
+                                                            )
+                                                        ) {
+                                                            cambiarRolUsuarioDueno(
+                                                                usuarioGestionSeleccionado.usuario_empresa_id,
+                                                                rol.rol_id
+                                                            );
+                                                        }
+                                                    }}
+                                                    className={`relative overflow-hidden rounded-2xl border px-4 py-4 text-left transition-all ${esRolActual
+                                                        ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-200 shadow-lg shadow-emerald-500/10'
+                                                        : bloqueado
+                                                            ? 'cursor-not-allowed border-red-500/20 bg-red-500/10 text-red-300 opacity-80'
+                                                            : 'border-slate-700 bg-slate-950/60 text-slate-300 hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-300'
+                                                        } disabled:cursor-not-allowed disabled:opacity-70`}
+                                                >
+                                                    {bloqueado && (
+                                                        <div className="absolute right-3 top-3 rounded-full bg-red-500/20 px-2 py-1 text-[10px] font-black text-red-300">
+                                                            🔒 Bloqueado
+                                                        </div>
+                                                    )}
+
+                                                    {esRolActual && (
+                                                        <div className="absolute right-3 top-3 rounded-full bg-emerald-500/20 px-2 py-1 text-[10px] font-black text-emerald-300">
+                                                            ✅ Actual
+                                                        </div>
+                                                    )}
+
+                                                    <div className="text-xl">
+                                                        {rol.rol_codigo === 'administrador'
+                                                            ? '👑'
+                                                            : rol.rol_codigo === 'soporte'
+                                                                ? '🧩'
+                                                                : '🔧'}
+                                                    </div>
+
+                                                    <div className="mt-2 text-sm font-black">
+                                                        {rol.rol_nombre}
+                                                    </div>
+
+                                                    <div className="mt-1 text-xs opacity-70">
+                                                        {rol.rol_descripcion || 'Sin descripción'}
+                                                    </div>
+
+                                                    <div
+                                                        className={`mt-4 rounded-xl border px-3 py-2 text-xs ${bloqueado
+                                                            ? 'border-red-500/20 bg-red-500/10 text-red-300'
+                                                            : esRolActual
+                                                                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300'
+                                                                : 'border-white/10 bg-white/[0.03] text-slate-400'
+                                                            }`}
+                                                    >
+                                                        <p className="font-bold">
+                                                            {estadoRol.texto}
+                                                        </p>
+
+                                                        <p className="mt-1 opacity-80">
+                                                            {estadoRol.detalle}
+                                                        </p>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                </div>
+                            </div>
+
+                            <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                        <p className="text-sm font-bold text-amber-300">
+                                            📌 Límites del plan
+                                        </p>
+
+                                        <p className="mt-1 text-xs text-slate-400">
+                                            Plan actual de la empresa:
+                                            <span className="ml-1 font-black uppercase text-amber-200">
+                                                {usuarioGestionSeleccionado.plan_codigo || 'gratis'}
+                                            </span>
+                                        </p>
+                                    </div>
+
+                                    <div className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-black text-amber-200">
+                                        Control automático activo
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                    {['administrador', 'soporte', 'tecnico'].map((rolCodigo) => {
+                                        const limite = obtenerLimiteRolPorPlan(
+                                            usuarioGestionSeleccionado.plan_codigo,
+                                            rolCodigo
+                                        );
+
+                                        const usados = contarUsuariosConRolEnEmpresaTotal(
+                                            usuarioGestionSeleccionado.empresa_id,
+                                            rolCodigo
+                                        );
+
+                                        const nombreRol =
+                                            rolCodigo === 'administrador'
+                                                ? 'Administrador'
+                                                : rolCodigo === 'soporte'
+                                                    ? 'Soporte'
+                                                    : 'Técnico';
+
+                                        const iconoRol =
+                                            rolCodigo === 'administrador'
+                                                ? '👑'
+                                                : rolCodigo === 'soporte'
+                                                    ? '🧩'
+                                                    : '🔧';
+
+                                        return (
+                                            <div
+                                                key={rolCodigo}
+                                                className={`rounded-2xl border p-3 ${limite === 0
+                                                    ? 'border-red-500/20 bg-red-500/10'
+                                                    : limite === null
+                                                        ? 'border-emerald-500/20 bg-emerald-500/10'
+                                                        : 'border-amber-500/20 bg-slate-950/40'
+                                                    }`}
+                                            >
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className="text-sm font-black text-white">
+                                                        {iconoRol} {nombreRol}
+                                                    </p>
+
+                                                    {limite === 0 ? (
+                                                        <span className="rounded-full bg-red-500/20 px-2 py-1 text-[10px] font-black text-red-300">
+                                                            Bloqueado
+                                                        </span>
+                                                    ) : limite === null ? (
+                                                        <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-[10px] font-black text-emerald-300">
+                                                            Ilimitado
+                                                        </span>
+                                                    ) : (
+                                                        <span className="rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-black text-amber-300">
+                                                            {usados}/{limite}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <p className="mt-2 text-xs text-slate-400">
+                                                    {limite === 0
+                                                        ? `El plan no permite usuarios con rol ${nombreRol}.`
+                                                        : limite === null
+                                                            ? `El plan Empresa no tiene límite para ${nombreRol}.`
+                                                            : `El plan permite máximo ${limite} usuario(s) con rol ${nombreRol}.`}
+                                                </p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {guardandoGestionUsuario && (
+                                <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-center text-sm font-bold text-emerald-300">
+                                    Guardando cambio de rol...
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {/* Modal Editar Usuario */}
+                {/* Modal Editar Plan SaaS */}
+                {modalEditarPlanAbierto && planEditando && (
+                    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+                        <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-amber-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-amber-950/20 p-6 shadow-2xl shadow-amber-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-black text-amber-300">
+                                        💳 Editar plan SaaS
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Plan {planEditando.nombre}
+                                    </h3>
+
+                                    <p className="mt-1 text-sm text-slate-400">
+                                        Modifica información comercial, límites por rol y estado del plan.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setModalEditarPlanAbierto(false);
+                                        setPlanEditando(null);
+                                    }}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Nombre del plan *
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={planEditando.nombre}
+                                        onChange={(e) => {
+                                            nombrePlanSaasRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                                        placeholder="Ej: Pro"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Subtítulo
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={planEditando.subtitulo || ''}
+                                        onChange={(e) => {
+                                            subtituloPlanSaasRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                                        placeholder="Ej: Gestión avanzada"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Precio
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={planEditando.precio || ''}
+                                        onChange={(e) => {
+                                            precioPlanSaasRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                                        placeholder="Ej: $29.990 / mes"
+                                    />
+                                </div>
+
+                                <div className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPlanDestacadoEditando(!planDestacadoEditando)}
+                                        className={`flex-1 rounded-xl border px-4 py-3 text-sm font-black transition-all ${planDestacadoEditando
+                                            ? 'border-purple-500/30 bg-purple-500/20 text-purple-200'
+                                            : 'border-slate-700 bg-slate-900 text-slate-400'
+                                            }`}
+                                    >
+                                        {planDestacadoEditando ? '⭐ Destacado' : 'Sin destacado'}
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setPlanActivoEditando(!planActivoEditando)}
+                                        className={`flex-1 rounded-xl border px-4 py-3 text-sm font-black transition-all ${planActivoEditando
+                                            ? 'border-emerald-500/30 bg-emerald-500/20 text-emerald-200'
+                                            : 'border-red-500/30 bg-red-500/20 text-red-200'
+                                            }`}
+                                    >
+                                        {planActivoEditando ? 'Activo' : 'Inactivo'}
+                                    </button>
+                                </div>
+
+                                <div className="md:col-span-2">
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Descripción
+                                    </label>
+
+                                    <textarea
+                                        defaultValue={planEditando.descripcion || ''}
+                                        onChange={(e) => {
+                                            descripcionPlanSaasRef.current = e.target.value;
+                                        }}
+                                        rows={3}
+                                        className="w-full resize-none rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                                        placeholder="Describe para quién está pensado este plan..."
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mt-6 rounded-3xl border border-amber-500/20 bg-amber-500/10 p-5">
+                                <div className="mb-4">
+                                    <p className="text-sm font-black text-amber-300">
+                                        🔐 Límites por rol
+                                    </p>
+
+                                    <p className="mt-1 text-xs text-slate-400">
+                                        Usa números para límites exactos o marca “Ilimitado” para planes empresariales.
+                                    </p>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                        <p className="mb-3 text-sm font-black text-white">
+                                            👑 Administrador
+                                        </p>
+
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            disabled={limiteAdminIlimitado}
+                                            defaultValue={
+                                                planEditando.limite_administrador === null
+                                                    ? ''
+                                                    : planEditando.limite_administrador
+                                            }
+                                            onChange={(e) => {
+                                                limiteAdminPlanSaasRef.current = e.target.value;
+                                            }}
+                                            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                            placeholder="0"
+                                        />
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setLimiteAdminIlimitado(!limiteAdminIlimitado);
+
+                                                if (!limiteAdminIlimitado) {
+                                                    limiteAdminPlanSaasRef.current = '';
+                                                }
+                                            }}
+                                            className={`mt-3 w-full rounded-xl border px-3 py-2 text-xs font-black transition-all ${limiteAdminIlimitado
+                                                ? 'border-emerald-500/30 bg-emerald-500/20 text-emerald-300'
+                                                : 'border-slate-700 bg-slate-900 text-slate-400'
+                                                }`}
+                                        >
+                                            {limiteAdminIlimitado ? 'Ilimitado activo' : 'Marcar ilimitado'}
+                                        </button>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                        <p className="mb-3 text-sm font-black text-white">
+                                            🧩 Soporte
+                                        </p>
+
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            disabled={limiteSoporteIlimitado}
+                                            defaultValue={
+                                                planEditando.limite_soporte === null
+                                                    ? ''
+                                                    : planEditando.limite_soporte
+                                            }
+                                            onChange={(e) => {
+                                                limiteSoportePlanSaasRef.current = e.target.value;
+                                            }}
+                                            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                            placeholder="0"
+                                        />
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setLimiteSoporteIlimitado(!limiteSoporteIlimitado);
+
+                                                if (!limiteSoporteIlimitado) {
+                                                    limiteSoportePlanSaasRef.current = '';
+                                                }
+                                            }}
+                                            className={`mt-3 w-full rounded-xl border px-3 py-2 text-xs font-black transition-all ${limiteSoporteIlimitado
+                                                ? 'border-emerald-500/30 bg-emerald-500/20 text-emerald-300'
+                                                : 'border-slate-700 bg-slate-900 text-slate-400'
+                                                }`}
+                                        >
+                                            {limiteSoporteIlimitado ? 'Ilimitado activo' : 'Marcar ilimitado'}
+                                        </button>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+                                        <p className="mb-3 text-sm font-black text-white">
+                                            🔧 Técnico
+                                        </p>
+
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            disabled={limiteTecnicoIlimitado}
+                                            defaultValue={
+                                                planEditando.limite_tecnico === null
+                                                    ? ''
+                                                    : planEditando.limite_tecnico
+                                            }
+                                            onChange={(e) => {
+                                                limiteTecnicoPlanSaasRef.current = e.target.value;
+                                            }}
+                                            className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none disabled:opacity-40"
+                                            placeholder="0"
+                                        />
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setLimiteTecnicoIlimitado(!limiteTecnicoIlimitado);
+
+                                                if (!limiteTecnicoIlimitado) {
+                                                    limiteTecnicoPlanSaasRef.current = '';
+                                                }
+                                            }}
+                                            className={`mt-3 w-full rounded-xl border px-3 py-2 text-xs font-black transition-all ${limiteTecnicoIlimitado
+                                                ? 'border-emerald-500/30 bg-emerald-500/20 text-emerald-300'
+                                                : 'border-slate-700 bg-slate-900 text-slate-400'
+                                                }`}
+                                        >
+                                            {limiteTecnicoIlimitado ? 'Ilimitado activo' : 'Marcar ilimitado'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                                <p className="text-sm font-black text-cyan-300">
+                                    ℹ️ Importante
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-400">
+                                    Estos cambios se guardan en Supabase. Después conectaremos crear, vincular y cambiar rol para que respeten estos límites editables.
+                                </p>
+                            </div>
+
+                            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setModalEditarPlanAbierto(false);
+                                        setPlanEditando(null);
+                                    }}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={guardarPlanSaas}
+                                    disabled={guardandoPlanSaas}
+                                    className="rounded-2xl border border-amber-500/40 bg-amber-500/20 px-5 py-3 text-sm font-black text-amber-200 transition-all hover:bg-amber-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoPlanSaas ? 'Guardando...' : 'Guardar plan'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {/* Modal Borrar Usuario Inteligente */}
+                {modalBorrarUsuarioAbierto && usuarioGestionSeleccionado && (
+                    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-2xl rounded-3xl border border-red-500/30 bg-gradient-to-br from-red-950/40 via-slate-950 to-slate-900 p-6 shadow-2xl shadow-red-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-black text-red-300">
+                                        🛡️ Eliminación segura
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Borrar usuario inteligente
+                                    </h3>
+
+                                    <p className="mt-2 text-sm text-slate-400">
+                                        FleetVision revisará vínculos e historial antes de permitir una eliminación definitiva.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setModalBorrarUsuarioAbierto(false);
+                                        setModoConfirmacionDefinitiva(false);
+                                        setErrorModalBorrarUsuario('');
+                                    }}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                                    Usuario seleccionado
+                                </p>
+
+                                <h4 className="mt-2 text-xl font-black text-white">
+                                    {usuarioGestionSeleccionado.username || 'Sin nombre'}
+                                </h4>
+
+                                <p className="mt-1 text-sm text-slate-400">
+                                    {usuarioGestionSeleccionado.apellido || 'Sin apellido'} · {usuarioGestionSeleccionado.empresa}
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-600">
+                                    Auth ID: {usuarioGestionSeleccionado.auth_id}
+                                </p>
+                            </div>
+
+                            {!modoConfirmacionDefinitiva && (
+                                <>
+                                    <div className="mt-5 grid gap-3 md:grid-cols-3">
+                                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                            <p className="text-sm font-black text-amber-300">
+                                                1. Revisión
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-400">
+                                                Se revisará si tiene historial asociado.
+                                            </p>
+                                        </div>
+
+                                        <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                                            <p className="text-sm font-black text-cyan-300">
+                                                2. Vínculos
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-400">
+                                                Si tiene más empresas, solo se desvincula.
+                                            </p>
+                                        </div>
+
+                                        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                            <p className="text-sm font-black text-emerald-300">
+                                                3. Trazabilidad
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-400">
+                                                Si hay historial, no se borra; se desactiva.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+                                        <p className="text-sm font-black text-red-300">
+                                            ⚠️ Acción delicada
+                                        </p>
+
+                                        <p className="mt-1 text-sm text-slate-300">
+                                            Este proceso está protegido para evitar pérdida de trazabilidad. FleetVision no eliminará información si detecta historial o si no puede verificarlo con seguridad.
+                                        </p>
+                                    </div>
+
+                                    <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setModalBorrarUsuarioAbierto(false);
+                                                setModoConfirmacionDefinitiva(false);
+                                                setErrorModalBorrarUsuario('');
+                                            }}
+                                            className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+                                        >
+                                            Cancelar
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => ejecutarBorradoUsuarioSeguro()}
+                                            disabled={borrandoUsuario}
+                                            className="rounded-2xl border border-red-500/40 bg-red-500/20 px-5 py-3 text-sm font-black text-red-200 transition-all hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {borrandoUsuario ? 'Revisando trazabilidad...' : 'Revisar eliminación segura'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+
+                            {modoConfirmacionDefinitiva && (
+                                <>
+                                    <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                                        <p className="text-sm font-black text-emerald-300">
+                                            ✅ Sin historial detectado
+                                        </p>
+
+                                        <p className="mt-1 text-sm text-slate-300">
+                                            FleetVision no encontró historial asociado para este usuario. Aun así, para proteger el sistema, debes confirmar manualmente la eliminación definitiva.
+                                        </p>
+                                    </div>
+
+                                    <div className="mt-5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+                                        <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-red-300">
+                                            Confirmación requerida
+                                        </label>
+
+                                        <p className="mb-3 text-sm text-slate-300">
+                                            Escribe exactamente:
+                                            <span className="mx-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 font-black text-red-200">
+                                                BORRAR DEFINITIVO
+                                            </span>
+                                        </p>
+
+                                        <input
+                                            type="text"
+                                            defaultValue=""
+                                            onChange={(e) => {
+                                                confirmacionBorrarUsuarioRef.current = e.target.value;
+                                                setErrorModalBorrarUsuario('');
+                                            }}
+                                            className="w-full rounded-2xl border border-red-500/30 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-red-400 focus:ring-2 focus:ring-red-500/20"
+                                            placeholder="Escribe BORRAR DEFINITIVO"
+                                        />
+
+                                        {errorModalBorrarUsuario && (
+                                            <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-bold text-red-300">
+                                                {errorModalBorrarUsuario}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setModalBorrarUsuarioAbierto(false);
+                                                setModoConfirmacionDefinitiva(false);
+                                                setErrorModalBorrarUsuario('');
+                                            }}
+                                            className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+                                        >
+                                            Cancelar
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={confirmarBorradoDefinitivo}
+                                            disabled={borrandoUsuario}
+                                            className="rounded-2xl border border-red-500/40 bg-red-500 px-5 py-3 text-sm font-black text-white transition-all hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {borrandoUsuario ? 'Eliminando...' : 'Confirmar borrado definitivo'}
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {modalEditarUsuarioAbierto && (
+                    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-2xl rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-cyan-950/30 p-6 shadow-2xl shadow-cyan-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-bold text-cyan-300">
+                                        ✏️ Editar usuario
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Modificar datos básicos
+                                    </h3>
+
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        Puedes corregir nombre, apellido, correo o estado del usuario.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setModalEditarUsuarioAbierto(false)}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Nombre de usuario *
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={formEditarUsuario.username}
+                                        onChange={(e) => {
+                                            usernameEditarUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20"
+                                        placeholder="Ej: tecnico1"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Apellido / nombre completo
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        defaultValue={formEditarUsuario.apellido}
+                                        onChange={(e) => {
+                                            apellidoEditarUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20"
+                                        placeholder="Ej: Juan Pérez"
+                                    />
+                                </div>
+
+                                <div className="md:col-span-2">
+                                    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
+                                        Nuevo correo
+                                    </label>
+
+                                    <input
+                                        type="email"
+                                        defaultValue=""
+                                        onChange={(e) => {
+                                            emailEditarUsuarioRef.current = e.target.value;
+                                        }}
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20"
+                                        placeholder="Déjalo vacío si no quieres cambiar el correo"
+                                    />
+
+                                    <p className="mt-2 text-xs text-slate-500">
+                                        El correo se cambia en Supabase Auth. Tu tabla usuarios no guarda email.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        setFormEditarUsuario((prev) => ({
+                                            ...prev,
+                                            activo: !prev.activo,
+                                        }))
+                                    }
+                                    className={`md:col-span-2 rounded-2xl border p-4 text-left transition-all ${formEditarUsuario.activo
+                                        ? 'border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20'
+                                        : 'border-red-500/30 bg-red-500/10 hover:bg-red-500/20'
+                                        }`}
+                                >
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <p className="font-black text-white">
+                                                {formEditarUsuario.activo
+                                                    ? 'Usuario activo'
+                                                    : 'Usuario inactivo'}
+                                            </p>
+
+                                            <p className="mt-1 text-sm text-slate-400">
+                                                {formEditarUsuario.activo
+                                                    ? 'El usuario puede usar FleetVision normalmente.'
+                                                    : 'El usuario queda bloqueado lógicamente en el sistema.'}
+                                            </p>
+                                        </div>
+
+                                        <span
+                                            className={`rounded-full px-3 py-1 text-xs font-black ${formEditarUsuario.activo
+                                                ? 'bg-emerald-500/20 text-emerald-300'
+                                                : 'bg-red-500/20 text-red-300'
+                                                }`}
+                                        >
+                                            {formEditarUsuario.activo ? 'Activo' : 'Inactivo'}
+                                        </span>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                <p className="text-sm font-black text-amber-300">
+                                    ⚠️ Edición controlada
+                                </p>
+
+                                <p className="mt-1 text-xs text-slate-400">
+                                    Esta opción solo corrige datos básicos. No cambia empresa, no elimina vínculos y no borra usuarios.
+                                </p>
+                            </div>
+
+                            <div className="mt-6 flex justify-end gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setModalEditarUsuarioAbierto(false)}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={guardarEditarUsuario}
+                                    disabled={guardandoEditarUsuario}
+                                    className="rounded-2xl border border-cyan-500/30 bg-cyan-500/20 px-5 py-3 text-sm font-black text-cyan-300 transition-all hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoEditarUsuario ? 'Guardando...' : 'Guardar cambios'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {/* Modal Confirmar Suscripción */}
+                {modalConfirmarSuscripcion?.abierto && (
+                    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-xl rounded-3xl border border-purple-500/30 bg-gradient-to-br from-slate-900 via-slate-950 to-purple-950/30 p-6 shadow-2xl shadow-purple-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-sm font-black text-purple-300">
+                                        📌 Confirmar cambio
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        Cambiar suscripción
+                                    </h3>
+
+                                    <p className="mt-2 text-sm text-slate-400">
+                                        Revisa bien antes de modificar el estado de suscripción de esta empresa.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={cerrarModalConfirmarSuscripcion}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-bold text-slate-400 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
+                                    Empresa
+                                </p>
+
+                                <h4 className="mt-2 text-2xl font-black text-white">
+                                    {modalConfirmarSuscripcion.empresaNombre}
+                                </h4>
+
+                                <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div className="rounded-2xl border border-slate-700 bg-slate-950/70 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                            Acción
+                                        </p>
+                                        <p className="mt-1 text-sm font-black text-slate-200">
+                                            Cambiar estado de suscripción
+                                        </p>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-purple-500/30 bg-purple-500/10 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wide text-purple-300">
+                                            Nuevo estado
+                                        </p>
+                                        <p className="mt-1 text-lg font-black uppercase text-purple-200">
+                                            {modalConfirmarSuscripcion.estado}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                <p className="text-sm font-black text-amber-300">
+                                    ⚠️ Cambio administrativo
+                                </p>
+
+                                <p className="mt-1 text-sm text-slate-300">
+                                    Esta acción modifica el estado comercial de la empresa. FleetVision registrará el cambio para trazabilidad del Panel Dueño.
+                                </p>
+                            </div>
+
+                            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={cerrarModalConfirmarSuscripcion}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-all hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={confirmarCambioSuscripcion}
+                                    disabled={guardandoGestionEmpresa}
+                                    className="rounded-2xl border border-purple-500/40 bg-purple-500/20 px-5 py-3 text-sm font-black text-purple-200 transition-all hover:bg-purple-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoGestionEmpresa
+                                        ? 'Guardando...'
+                                        : `Confirmar cambio a ${modalConfirmarSuscripcion.estado}`}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {/* Modal Confirmar Cambio Empresa Usuario */}
+                {modalConfirmarCambioEmpresaUsuario && usuarioGestionSeleccionado && (
+                    <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-xl rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 shadow-2xl shadow-cyan-500/10">
+                            <div className="flex items-start gap-4">
+                                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/10 text-2xl">
+                                    🏢
+                                </div>
+
+                                <div className="flex-1">
+                                    <p className="text-sm font-black text-cyan-300">
+                                        Confirmar cambio de empresa
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        ¿Mover este usuario?
+                                    </h3>
+
+                                    <p className="mt-2 text-sm text-slate-400">
+                                        Estás a punto de cambiar la empresa y el rol de este usuario dentro de FleetVision.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-950/70 p-5">
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                            Usuario
+                                        </p>
+
+                                        <p className="mt-1 text-lg font-black text-white">
+                                            {usuarioGestionSeleccionado.username || 'Sin nombre'}
+                                            {usuarioGestionSeleccionado.apellido
+                                                ? ` ${usuarioGestionSeleccionado.apellido}`
+                                                : ''}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                            Rol destino
+                                        </p>
+
+                                        <p className="mt-1 text-lg font-black text-purple-300">
+                                            {rolDestinoUsuario || usuarioGestionSeleccionado.rol_nombre || 'Sin rol'}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                            Empresa actual
+                                        </p>
+
+                                        <p className="mt-1 text-lg font-black text-slate-300">
+                                            {usuarioGestionSeleccionado.empresa}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                            Empresa destino
+                                        </p>
+
+                                        <p className="mt-1 text-lg font-black text-cyan-300">
+                                            {empresasDueno.find(
+                                                (empresa) =>
+                                                    empresa.empresa_id ===
+                                                    (empresaDestinoUsuario || usuarioGestionSeleccionado.empresa_id)
+                                            )?.empresa || 'Empresa seleccionada'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+                                <p className="text-xs font-bold text-amber-300">
+                                    ⚠️ Esta acción no borra al usuario.
+                                </p>
+
+                                <p className="mt-1 text-xs text-amber-100/70">
+                                    Solo actualizará su empresa y rol en usuarios_empresas. El sistema respetará los límites configurados en el plan.
+                                </p>
+                            </div>
+
+                            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setModalConfirmarCambioEmpresaUsuario(false)}
+                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-300 transition-all hover:border-slate-500 hover:bg-slate-800"
+                                >
+                                    Cancelar
+                                </button>
+
+                                <button
+                                    type="button"
+                                    disabled={guardandoCambioEmpresaUsuario}
+                                    onClick={async () => {
+                                        setModalConfirmarCambioEmpresaUsuario(false);
+                                        await cambiarEmpresaUsuarioDueno();
+                                    }}
+                                    className="rounded-2xl border border-cyan-500/30 bg-cyan-500/20 px-5 py-3 text-sm font-black text-cyan-300 transition-all hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {guardandoCambioEmpresaUsuario ? 'Guardando...' : 'Sí, mover usuario'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Modal Sistema Bonito */}
+                {modalSistema && (
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div
+                            className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl ${modalSistema.tipo === 'error'
+                                ? 'border-red-500/30 bg-gradient-to-br from-red-950/80 via-slate-950 to-slate-900 shadow-red-500/10'
+                                : modalSistema.tipo === 'advertencia'
+                                    ? 'border-amber-500/30 bg-gradient-to-br from-amber-950/40 via-slate-950 to-slate-900 shadow-amber-500/10'
+                                    : modalSistema.tipo === 'exito'
+                                        ? 'border-emerald-500/30 bg-gradient-to-br from-emerald-950/50 via-slate-950 to-slate-900 shadow-emerald-500/10'
+                                        : 'border-cyan-500/30 bg-gradient-to-br from-cyan-950/50 via-slate-950 to-slate-900 shadow-cyan-500/10'
+                                }`}
+                        >
+                            <div className="flex items-start gap-4">
+                                <div
+                                    className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-3xl ${modalSistema.tipo === 'error'
+                                        ? 'bg-red-500/20 text-red-300'
+                                        : modalSistema.tipo === 'advertencia'
+                                            ? 'bg-amber-500/20 text-amber-300'
+                                            : modalSistema.tipo === 'exito'
+                                                ? 'bg-emerald-500/20 text-emerald-300'
+                                                : 'bg-cyan-500/20 text-cyan-300'
+                                        }`}
+                                >
+                                    {modalSistema.icono}
+                                </div>
+
+                                <div className="flex-1">
+                                    <h3 className="text-xl font-black text-white">
+                                        {modalSistema.titulo}
+                                    </h3>
+
+                                    <p className="mt-2 text-sm text-slate-300">
+                                        {modalSistema.mensaje}
+                                    </p>
+
+                                    {modalSistema.detalle && (
+                                        <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                                            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                                                Detalle
+                                            </p>
+
+                                            <p className="mt-1 text-sm text-slate-400">
+                                                {modalSistema.detalle}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="mt-6 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={cerrarModalSistema}
+                                    className={`rounded-2xl px-5 py-3 text-sm font-black text-white transition-all ${modalSistema.tipo === 'error'
+                                        ? 'bg-red-500 hover:bg-red-400'
+                                        : modalSistema.tipo === 'advertencia'
+                                            ? 'bg-amber-500 hover:bg-amber-400'
+                                            : modalSistema.tipo === 'exito'
+                                                ? 'bg-emerald-500 hover:bg-emerald-400'
+                                                : 'bg-cyan-500 hover:bg-cyan-400'
+                                        }`}
+                                >
+                                    Entendido
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+            </div>
+        );
+    };
     /** Configuración */
     const Configuración = () => (
         <div className="space-y-6">
@@ -4720,8 +11060,10 @@ export default function DashboardCompleto() {
                     {secciónActiva === 'personal' && <Personal />}
                     {secciónActiva === 'reportes' && <Reportes />}
                     {secciónActiva === 'configuracion' && <Configuración />}
+                    {secciónActiva === 'desarrollador' && esAdminGlobal && <PanelDesarrollador />}
                 </div>
             </div>
+
 
             {/* Footer */}
             <footer

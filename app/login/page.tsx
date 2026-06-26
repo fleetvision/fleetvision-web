@@ -265,42 +265,40 @@ export default function LoginPage() {
             console.log("✅ Login exitoso con:", user.email);
             console.log("🆔 User ID:", user.id);
 
-            const { data: relaciones, error: relError } = await supabase
-                .from('usuarios_empresas')
-                .select('empresa_id')
-                .eq('usuario_id', user.id);
+            const { data: empresasLogin, error: empresasLoginError } = await supabase.rpc(
+                'obtener_mis_empresas_login'
+            );
 
-            if (relError) {
-                console.error("❌ Error usuarios_empresas:", relError);
+            if (empresasLoginError) {
+                console.error("❌ Error obtener_mis_empresas_login:", empresasLoginError);
                 await supabase.auth.signOut();
                 showToast("Error al cargar tus empresas. Intenta nuevamente.", "error");
                 setLoading(false);
                 return;
             }
 
-            if (!relaciones || relaciones.length === 0) {
-                console.warn("⚠️ Usuario sin empresas asignadas");
+            if (!empresasLogin || empresasLogin.length === 0) {
+                console.error("❌ Usuario sin empresas asignadas:", user.id);
                 await supabase.auth.signOut();
                 showToast("No tienes empresas asignadas. Contacta al administrador.", "warning");
                 setLoading(false);
                 return;
             }
 
-            const empresaIds = relaciones.map(r => r.empresa_id);
-            const { data: empresas, error: empError } = await supabase
-                .from('empresas')
-                .select('*')
-                .in('id', empresaIds);
+            const empresaSeleccionada = empresasLogin[0];
 
-            if (empError || !empresas) {
-                console.error("❌ Error empresas:", empError);
-                await supabase.auth.signOut();
-                showToast("Error al cargar información de empresas.", "error");
-                setLoading(false);
-                return;
-            }
+            localStorage.setItem("empresa_id", empresaSeleccionada.empresa_id);
+            localStorage.setItem("empresa_nombre", empresaSeleccionada.empresa);
+            localStorage.setItem(
+                "empresa_modo_demo",
+                empresaSeleccionada.modo_demo ? "true" : "false"
+            );
 
-            const empresasActivas = empresas.filter(e => e.activo === true);
+            console.log("✅ Empresa login:", empresaSeleccionada);
+
+            const empresasActivas = (empresasLogin || []).filter(
+                (empresa: any) => empresa.empresa_activa !== false
+            );
 
             if (empresasActivas.length === 0) {
                 console.warn("⚠️ Usuario sin empresas activas");
@@ -310,13 +308,18 @@ export default function LoginPage() {
                 return;
             }
 
-            let usuarioInfo = null;
+            let usuarioInfo: any = null;
+
             try {
-                const { data: usuarioData } = await supabase
+                const { data: usuarioData, error: usuarioError } = await supabase
                     .from('usuarios')
                     .select('*')
-                    .eq('id', user.id)
+                    .eq('auth_id', user.id)
                     .maybeSingle();
+
+                if (usuarioError) {
+                    console.log("ℹ️ Error leyendo usuario público:", usuarioError);
+                }
 
                 if (usuarioData) {
                     usuarioInfo = usuarioData;
@@ -335,28 +338,51 @@ export default function LoginPage() {
             sessionStorage.clear();
             localStorage.removeItem('user_data');
             localStorage.removeItem('user_id');
+            localStorage.removeItem('auth_id');
             localStorage.removeItem('empresa_id');
+            localStorage.removeItem('empresa_nombre');
             localStorage.removeItem('empresa_activa');
+            localStorage.removeItem('empresa_modo_demo');
             localStorage.removeItem('empresas_disponibles');
 
             const userData = {
-                id: user.id,
+                id: usuarioInfo?.id || user.id,
+                auth_id: user.id,
                 email: user.email || '',
-                nombre: usuarioInfo?.nombre || user.email?.split('@')[0] || 'Usuario',
-                role: usuarioInfo?.rol || 'ADMIN',
+                nombre:
+                    usuarioInfo?.username ||
+                    usuarioInfo?.apellido ||
+                    user.email?.split('@')[0] ||
+                    'Usuario',
+                role: usuarioInfo?.rol || 'demo',
                 activo: usuarioInfo?.activo !== false
             };
 
             sessionStorage.setItem('user_data', JSON.stringify(userData));
-            sessionStorage.setItem('user_id', user.id);
+            sessionStorage.setItem('user_id', userData.id);
+            sessionStorage.setItem('auth_id', user.id);
             sessionStorage.setItem('user_email', user.email || '');
             sessionStorage.setItem('user_role', userData.role);
 
-            if (empresasActivas.length === 1) {
-                const empresa = empresasActivas[0];
+            const empresasNormalizadas = empresasActivas.map((empresa: any) => ({
+                id: empresa.empresa_id,
+                nombre: empresa.empresa,
+                rut: empresa.rut,
+                activo: empresa.empresa_activa !== false,
+                modo_demo: empresa.modo_demo === true
+            }));
+
+            if (empresasNormalizadas.length === 1) {
+                const empresa = empresasNormalizadas[0];
+
                 sessionStorage.setItem('empresa_activa', JSON.stringify(empresa));
                 sessionStorage.setItem('empresa_id', empresa.id);
                 sessionStorage.setItem('empresa_nombre', empresa.nombre);
+                sessionStorage.setItem('empresa_modo_demo', empresa.modo_demo ? 'true' : 'false');
+
+                localStorage.setItem('empresa_id', empresa.id);
+                localStorage.setItem('empresa_nombre', empresa.nombre);
+                localStorage.setItem('empresa_modo_demo', empresa.modo_demo ? 'true' : 'false');
 
                 console.log("🏢 Empresa auto-seleccionada:", empresa.nombre);
                 showToast(`¡Bienvenido ${userData.nombre}!`, "success");
@@ -364,16 +390,21 @@ export default function LoginPage() {
                 setTimeout(() => {
                     router.push('/dashboard');
                 }, 1000);
-            } else {
-                sessionStorage.setItem('empresas_disponibles', JSON.stringify(empresasActivas));
-                console.log(`🏢 ${empresasActivas.length} empresas disponibles para selección`);
-                showToast(`¡Bienvenido ${userData.nombre}!`, "success");
 
-                setTimeout(() => {
-                    router.push('/seleccion-empresa');
-                }, 1000);
+                return;
             }
 
+            sessionStorage.setItem('empresas_disponibles', JSON.stringify(empresasNormalizadas));
+            localStorage.setItem('empresas_disponibles', JSON.stringify(empresasNormalizadas));
+
+            console.log(`🏢 ${empresasNormalizadas.length} empresas disponibles para selección`);
+            showToast(`¡Bienvenido ${userData.nombre}!`, "success");
+
+            setTimeout(() => {
+                router.push('/seleccion-empresa');
+            }, 1000);
+
+            return;
             setEmail("");
             setPassword("");
 
