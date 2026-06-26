@@ -110,10 +110,12 @@ interface Empresa {
 }
 
 interface Usuario {
-    id: string;
+    id: string; // auth.users.id
+    usuario_id?: string | null; // public.usuarios.id
     email: string;
     nombre: string;
     rol: string;
+    rol_empresa?: string | null;
 }
 interface PlanFeature {
     feature: string;
@@ -413,28 +415,58 @@ export default function DashboardCompleto() {
     useEffect(() => {
         const inicializarDashboard = async () => {
             setCargando(true);
+
             try {
                 const { data: { user }, error: userError } = await supabase.auth.getUser();
+
                 if (userError || !user) {
                     router.replace('/login');
                     return;
                 }
-                if (user) {
-                    setDatosUsuario({
-                        id: user.id,
-                        email: user.email || '',
-                        nombre: user.user_metadata?.nombre || 'Usuario',
-                        rol: user.user_metadata?.rol || 'Administrador'
-                    });
-                    await cargarRolGlobalUsuario();
-                    await cargarEmpresaUsuario();
+
+                const { data: perfilUsuario, error: perfilUsuarioError } = await supabase
+                    .from('usuarios')
+                    .select('id, username, apellido, rol')
+                    .eq('auth_id', user.id)
+                    .maybeSingle();
+
+                if (perfilUsuarioError) {
+                    console.warn('No se pudo cargar perfil desde public.usuarios:', perfilUsuarioError);
                 }
+
+                const nombreDesdePerfil = [
+                    perfilUsuario?.username,
+                    perfilUsuario?.apellido
+                ]
+                    .filter(Boolean)
+                    .join(' ')
+                    .trim();
+
+                setDatosUsuario({
+                    id: user.id,
+                    usuario_id: perfilUsuario?.id || null,
+                    email: user.email || '',
+                    nombre:
+                        nombreDesdePerfil ||
+                        user.user_metadata?.nombre ||
+                        user.email?.split('@')[0] ||
+                        'Usuario',
+                    rol:
+                        user.user_metadata?.rol ||
+                        perfilUsuario?.rol ||
+                        'Usuario',
+                    rol_empresa: null,
+                });
+
+                await cargarRolGlobalUsuario();
+                await cargarEmpresaUsuario();
             } catch (error) {
                 console.error('Error inicializando dashboard:', error);
             } finally {
                 setTimeout(() => setCargando(false), 800);
             }
         };
+
         inicializarDashboard();
     }, []);
 
@@ -443,8 +475,12 @@ export default function DashboardCompleto() {
         if (empresaActual) {
             cargarDatosEmpresa(empresaActual.id);
             cargarFeaturesEmpresa(empresaActual.id);
+
+            if (!esAdminGlobal && datosUsuario?.id) {
+                cargarRolEmpresaActual(empresaActual.id, datosUsuario.id);
+            }
         }
-    }, [empresaActual]);
+    }, [empresaActual, datosUsuario?.id, esAdminGlobal]);
     // --- Efecto para detectar Modo Demo ---
     useEffect(() => {
         const modoDemoStorage =
@@ -459,6 +495,13 @@ export default function DashboardCompleto() {
         setEmpresaModoDemo(modoDemoStorage);
         setEmpresaNombreActual(nombreEmpresaStorage);
     }, []);
+    // --- Efecto para cargar todas las empresas cuando el usuario es dueño global ---
+    useEffect(() => {
+        if (esAdminGlobal && empresasDueno.length === 0) {
+            cargarEmpresasDueno();
+        }
+    }, [esAdminGlobal]);
+
 
     // =============================================================
     // 🔵 SECCIÓN AZUL – Funciones de gestión de empresa
@@ -498,6 +541,67 @@ export default function DashboardCompleto() {
 
     const cerrarModalSistema = () => {
         setModalSistema(null);
+    };
+    const formatearRolEmpresaVisual = (rol?: string | null) => {
+        const limpio = (rol || '')
+            .trim()
+            .toLowerCase()
+            .replace('é', 'e');
+
+        if (limpio === 'administrador') return 'Administrador';
+        if (limpio === 'soporte') return 'Soporte';
+        if (limpio === 'tecnico') return 'Técnico';
+
+        return 'Sin rol';
+    };
+
+    const cargarRolEmpresaActual = async (empresaId: string, authId: string) => {
+        try {
+            if (!empresaId || !authId) return;
+
+            const { data: usuarioPublico, error: errorUsuarioPublico } = await supabase
+                .from('usuarios')
+                .select('id')
+                .eq('auth_id', authId)
+                .maybeSingle();
+
+            if (errorUsuarioPublico) {
+                console.warn('No se pudo buscar public.usuarios para rol empresa:', errorUsuarioPublico);
+                return;
+            }
+
+            if (!usuarioPublico?.id) {
+                console.warn('Usuario sin registro en public.usuarios para auth_id:', authId);
+                return;
+            }
+
+            const { data: vinculoEmpresa, error: errorVinculoEmpresa } = await supabase
+                .from('usuarios_empresas')
+                .select('nombre')
+                .eq('usuario_id', usuarioPublico.id)
+                .eq('empresa_id', empresaId)
+                .maybeSingle();
+
+            if (errorVinculoEmpresa) {
+                console.warn('No se pudo cargar rol desde usuarios_empresas:', errorVinculoEmpresa);
+                return;
+            }
+
+            const rolEmpresaVisual = formatearRolEmpresaVisual(vinculoEmpresa?.nombre);
+
+            setDatosUsuario((prev) => {
+                if (!prev) return prev;
+
+                return {
+                    ...prev,
+                    usuario_id: usuarioPublico.id,
+                    rol: rolEmpresaVisual,
+                    rol_empresa: rolEmpresaVisual,
+                };
+            });
+        } catch (error) {
+            console.warn('Error general cargando rol de empresa actual:', error);
+        }
     };
     const cargarRolGlobalUsuario = async () => {
         try {
@@ -839,6 +943,48 @@ export default function DashboardCompleto() {
         } finally {
             setGuardandoGestionEmpresa(false);
         }
+    };
+    const cambiarEmpresaActualDueno = (empresaId: string) => {
+        const empresaSeleccionada = empresasDueno.find(
+            (empresa) => empresa.empresa_id === empresaId
+        );
+
+        if (!empresaSeleccionada) {
+            mostrarModalSistema(
+                'advertencia',
+                'Empresa no encontrada',
+                'No se encontró la empresa seleccionada en la lista del Panel Dueño.',
+                'Presiona actualizar empresas e intenta nuevamente.'
+            );
+            return;
+        }
+
+        const nombreEmpresa = empresaSeleccionada.empresa || 'Sin empresa';
+        const esDemo =
+            empresaSeleccionada.modo_demo === true ||
+            nombreEmpresa.trim().toUpperCase() === 'PRUEBA';
+
+        sessionStorage.setItem('empresa_id', empresaSeleccionada.empresa_id);
+        sessionStorage.setItem('empresa_nombre', nombreEmpresa);
+        sessionStorage.setItem('empresa_modo_demo', String(esDemo));
+        sessionStorage.setItem('empresa_activa', String(empresaSeleccionada.empresa_activa));
+
+        localStorage.setItem('empresa_id', empresaSeleccionada.empresa_id);
+        localStorage.setItem('empresa_nombre', nombreEmpresa);
+        localStorage.setItem('empresa_modo_demo', String(esDemo));
+        localStorage.setItem('empresa_activa', String(empresaSeleccionada.empresa_activa));
+
+        setEmpresaModoDemo(esDemo);
+        setEmpresaNombreActual(nombreEmpresa);
+
+        setEmpresaActual({
+            id: empresaSeleccionada.empresa_id,
+            nombre: nombreEmpresa,
+            rut_text: empresaSeleccionada.rut || undefined,
+            activo: empresaSeleccionada.empresa_activa,
+        });
+
+        setSecciónActiva('dashboard');
     };
     const crearEmpresaDueno = async () => {
         const nombreLimpio = nombreNuevaEmpresaRef.current.trim();
@@ -2565,62 +2711,140 @@ export default function DashboardCompleto() {
             );
         };
 
+        type RolSidebar = 'administrador' | 'soporte' | 'tecnico' | 'sin_rol';
+
+        const normalizarRolSidebar = (rol?: string | null): RolSidebar => {
+            const limpio = (rol || '')
+                .trim()
+                .toLowerCase()
+                .replace('é', 'e')
+                .replace('ñ', 'n');
+
+            if (limpio === 'administrador') return 'administrador';
+            if (limpio === 'soporte') return 'soporte';
+            if (limpio === 'tecnico') return 'tecnico';
+
+            // Algunas cuentas antiguas tienen rol "dueno" en public.usuarios.
+            // Para el sidebar de empresa, eso se trata como administrador.
+            if (limpio === 'dueno' || limpio === 'owner') return 'administrador';
+
+            return 'sin_rol';
+        };
+
+        const obtenerRolSidebarActual = (): RolSidebar => {
+            if (esAdminGlobal) {
+                return 'administrador';
+            }
+
+            const datosUsuarioConRol = datosUsuario as (Usuario & {
+                rol_empresa?: string | null;
+                rol_nombre?: string | null;
+            }) | null;
+
+            const rolDesdeDatosUsuario = normalizarRolSidebar(
+                datosUsuarioConRol?.rol_empresa ||
+                datosUsuarioConRol?.rol_nombre ||
+                datosUsuarioConRol?.rol
+            );
+
+            if (rolDesdeDatosUsuario !== 'sin_rol') {
+                return rolDesdeDatosUsuario;
+            }
+
+            if (typeof window === 'undefined') return 'sin_rol';
+
+            try {
+                const userDataRaw =
+                    sessionStorage.getItem('user_data') ||
+                    localStorage.getItem('user_data');
+
+                const userData = userDataRaw ? JSON.parse(userDataRaw) : null;
+
+                const rolDesdeStorage = normalizarRolSidebar(
+                    userData?.rol_empresa ||
+                    userData?.rol_nombre ||
+                    userData?.rol ||
+                    sessionStorage.getItem('user_role') ||
+                    localStorage.getItem('user_role')
+                );
+
+                return rolDesdeStorage;
+            } catch {
+                return normalizarRolSidebar(
+                    sessionStorage.getItem('user_role') ||
+                    localStorage.getItem('user_role')
+                );
+            }
+        };
+
+        const rolSidebarActual = obtenerRolSidebarActual();
+        console.log('ROL SIDEBAR ACTUAL:', rolSidebarActual);
+
+
         const secciones = [
             {
                 id: 'dashboard',
                 feature: 'dashboard',
                 icono: '🏠',
                 etiqueta: 'Dashboard Principal',
-                descripción: 'Vista general del sistema'
+                descripción: 'Vista general del sistema',
+                rolesPermitidos: ['administrador', 'soporte', 'tecnico'] as RolSidebar[],
             },
             {
                 id: 'activos',
                 feature: 'activos',
                 icono: '🚚',
                 etiqueta: 'Gestión de Activos',
-                descripción: 'Vehículos y equipos'
+                descripción: 'Vehículos y equipos',
+                rolesPermitidos: ['administrador', 'soporte', 'tecnico'] as RolSidebar[],
             },
             {
                 id: 'ordenes',
                 feature: 'ordenes_trabajo',
                 icono: '📋',
                 etiqueta: 'Órdenes de Trabajo',
-                descripción: 'Crear y gestionar OT'
+                descripción: 'Crear y gestionar OT',
+                rolesPermitidos: ['administrador', 'soporte', 'tecnico'] as RolSidebar[],
             },
             {
                 id: 'mantenimiento',
                 feature: 'mantenimiento_basico',
                 icono: '🔧',
                 etiqueta: 'Plan Mantenimiento',
-                descripción: 'Programación preventiva'
+                descripción: 'Programación preventiva',
+                rolesPermitidos: ['administrador', 'soporte'] as RolSidebar[],
             },
             {
                 id: 'inventario',
                 feature: 'inventario_basico',
                 icono: '📦',
                 etiqueta: 'Inventario',
-                descripción: 'Repuestos y materiales'
+                descripción: 'Repuestos y materiales',
+                rolesPermitidos: ['administrador', 'soporte'] as RolSidebar[],
             },
             {
                 id: 'personal',
                 feature: 'usuarios',
                 icono: '👥',
                 etiqueta: 'Personal',
-                descripción: 'Equipo de trabajo'
+                descripción: 'Equipo de trabajo',
+                rolesPermitidos: ['administrador'] as RolSidebar[],
             },
             {
                 id: 'reportes',
                 feature: 'reportes_demo',
                 icono: '📊',
                 etiqueta: 'Reportes',
-                descripción: 'Análisis y estadísticas'
+                descripción: 'Análisis y estadísticas',
+                rolesPermitidos: ['administrador', 'soporte'] as RolSidebar[],
             },
             {
                 id: 'configuracion',
                 feature: 'configuracion',
                 icono: '⚙️',
                 etiqueta: 'Configuración',
-                descripción: 'Ajustes del sistema'
+                descripción: 'Ajustes del sistema',
+                rolesPermitidos: ['administrador'] as RolSidebar[],
             },
             {
                 id: 'desarrollador',
@@ -2628,18 +2852,38 @@ export default function DashboardCompleto() {
                 soloAdminGlobal: true,
                 icono: '🛡️',
                 etiqueta: 'Panel Dueño',
-                descripción: 'Empresas, planes y usuarios'
+                descripción: 'Empresas, planes y usuarios',
+                rolesPermitidos: ['administrador'] as RolSidebar[],
             },
         ];
 
-        const seccionesPermitidas = secciones.filter((sección) => {
-            if ('soloAdminGlobal' in sección && sección.soloAdminGlobal) {
-                return esAdminGlobal;
+        const seccionesVisibles = secciones.filter((seccion) => {
+            if (esAdminGlobal) {
+                return true;
             }
 
-            return tieneFeatureSidebar(sección.feature);
+            if (seccion.soloAdminGlobal) {
+                return false;
+            }
+
+            return seccion.rolesPermitidos.includes(rolSidebarActual);
         });
 
+        const seccionesPermitidas = seccionesVisibles.filter((seccion) => {
+            // Dueño global ve todo
+            if (esAdminGlobal) {
+                return true;
+            }
+
+            // Panel Dueño solo lo ve el dueño global
+            if (seccion.soloAdminGlobal) {
+                return false;
+            }
+
+            // Para la barra lateral mandan los permisos por rol.
+            // No usamos tieneFeatureSidebar aquí porque está bloqueando módulos visibles.
+            return true;
+        });
         const generarParticulas = () => {
             const particulas = [];
             const tamaños = ['particula-xs', 'particula-sm', 'particula-md', 'particula-lg', 'particula-xl'];
@@ -2744,28 +2988,37 @@ export default function DashboardCompleto() {
                             </button>
                         ))}
 
-                        {!barraLateralContraída && (
-                            <div className={`mt-4 rounded-xl border p-3 ${esAdminGlobal
-                                ? 'border-purple-500/20 bg-purple-500/10'
-                                : 'border-amber-500/20 bg-amber-500/10'
-                                }`}>
-                                <p className={`text-xs font-bold ${esAdminGlobal ? 'text-purple-300' : 'text-amber-300'}`}>
-                                    {esAdminGlobal
-                                        ? `Modo ${rolGlobal?.nombre || 'Dueño'}`
+                        {!barraLateralContraída &&
+                            (esAdminGlobal || empresaModoDemo || seccionesPermitidas.length < seccionesVisibles.length) && (
+                                <div className={`mt-4 rounded-xl border p-3 ${esAdminGlobal
+                                    ? 'border-purple-500/20 bg-purple-500/10'
+                                    : empresaModoDemo
+                                        ? 'border-cyan-500/20 bg-cyan-500/10'
+                                        : 'border-amber-500/20 bg-amber-500/10'
+                                    }`}>
+                                    <p className={`text-xs font-bold ${esAdminGlobal
+                                        ? 'text-purple-300'
                                         : empresaModoDemo
-                                            ? '🧪 Modo Demo'
-                                            : 'Plan Gratis'}
-                                </p>
-                                <p className="text-[11px] text-slate-400 mt-1">
-                                    {esAdminGlobal
-                                        ? 'Tienes acceso al Panel Dueño de FleetVision.'
-                                        : empresaModoDemo
-                                            ? 'Ambiente de prueba comercial. Las acciones reales se bloquearán en modo demo.'
-                                            : 'Algunas funciones están bloqueadas por tu plan.'
-                                    }
-                                </p>
-                            </div>
-                        )}
+                                            ? 'text-cyan-300'
+                                            : 'text-amber-300'
+                                        }`}>
+                                        {esAdminGlobal
+                                            ? `Modo ${rolGlobal?.nombre || 'Dueño'}`
+                                            : empresaModoDemo
+                                                ? '🧪 Modo Demo'
+                                                : 'Plan limitado'}
+                                    </p>
+
+                                    <p className="mt-1 text-[11px] text-slate-400">
+                                        {esAdminGlobal
+                                            ? 'Tienes acceso completo al Panel Dueño de FleetVision.'
+                                            : empresaModoDemo
+                                                ? 'Ambiente de prueba comercial. Algunas acciones reales pueden estar bloqueadas.'
+                                                : 'Algunas funciones están bloqueadas por el plan actual de la empresa.'
+                                        }
+                                    </p>
+                                </div>
+                            )}
                     </nav>
 
                     <div className={`p-4 border-t border-cyan-500/10 bg-slate-900/30 ${barraLateralContraída ? 'text-center' : ''}`}>
@@ -11000,13 +11253,44 @@ export default function DashboardCompleto() {
                                 </button>
                             </div>
 
-                            {/* MOSTRAR EMPRESA DE FORMA ESTÁTICA */}
+                            {/* Empresa actual / selector para Dueño global */}
                             {empresaActual && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
                                     <div className="h-2 w-2 rounded-full bg-emerald-500" />
+
                                     <div className="text-left">
-                                        <p className="text-[10px] text-slate-400">Empresa</p>
-                                        <p className="text-sm font-medium text-white">{empresaActual.nombre}</p>
+                                        <p className="text-[10px] text-slate-400">
+                                            {esAdminGlobal ? 'Empresa global' : 'Empresa'}
+                                        </p>
+
+                                        {esAdminGlobal ? (
+                                            <select
+                                                value={empresaActual.id}
+                                                onChange={(e) => cambiarEmpresaActualDueno(e.target.value)}
+                                                className="max-w-[180px] cursor-pointer rounded-lg border border-cyan-500/20 bg-slate-950 px-2 py-1 text-sm font-black text-white outline-none transition-all hover:border-cyan-400/50 focus:border-cyan-400"
+                                            >
+                                                {empresasDueno.length === 0 && (
+                                                    <option value={empresaActual.id}>
+                                                        {empresaActual.nombre}
+                                                    </option>
+                                                )}
+
+                                                {empresasDueno
+                                                    .filter((empresa) => empresa.empresa_activa)
+                                                    .map((empresa) => (
+                                                        <option
+                                                            key={empresa.empresa_id}
+                                                            value={empresa.empresa_id}
+                                                        >
+                                                            {empresa.empresa}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                        ) : (
+                                            <p className="text-sm font-medium text-white">
+                                                {empresaActual.nombre}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -11014,12 +11298,26 @@ export default function DashboardCompleto() {
                             {/* Perfil de usuario */}
                             <div className="flex items-center gap-3">
                                 <div className="text-right">
-                                    <p className={`text-sm font-medium ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>{datosUsuario?.nombre || 'Usuario'}</p>
-                                    <p className={`text-xs ${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>{datosUsuario?.rol || 'Usuario'}</p>
+                                    <p className={`text-sm font-black ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
+                                        {esAdminGlobal ? 'Dueño FleetVision' : datosUsuario?.nombre || 'Usuario'}
+                                    </p>
+
+                                    <p className={`text-xs ${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>
+                                        {esAdminGlobal
+                                            ? `Acceso global${rolGlobal?.nombre ? ` · ${rolGlobal.nombre}` : ''}`
+                                            : datosUsuario?.rol || 'Usuario'}
+                                    </p>
                                 </div>
-                                <div className={`h-10 w-10 rounded-full flex items-center justify-center ${modoOscuro ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 text-cyan-400' : 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 text-cyan-500'}`}>
-                                    {datosUsuario?.nombre?.charAt(0) || 'U'}
+
+                                <div className={`flex h-10 w-10 items-center justify-center rounded-full ${esAdminGlobal
+                                    ? 'border border-purple-500/40 bg-purple-500/20 text-purple-300'
+                                    : modoOscuro
+                                        ? 'border border-cyan-500/30 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 text-cyan-400'
+                                        : 'border border-cyan-500/30 bg-gradient-to-br from-cyan-500/20 to-blue-500/20 text-cyan-500'
+                                    }`}>
+                                    {esAdminGlobal ? 'D' : datosUsuario?.nombre?.charAt(0) || 'U'}
                                 </div>
+
                                 <button
                                     onClick={manejarCerrarSesión}
                                     className={`p-2 rounded-lg transition-colors ${modoOscuro ? 'hover:bg-white/10' : 'hover:bg-gray-200'}`}
