@@ -117,6 +117,25 @@ interface Usuario {
     rol: string;
     rol_empresa?: string | null;
 }
+
+interface ChatMensaje {
+    id: string;
+    empresa_id: string;
+    user_id: string; // auth.users.id del remitente
+    destinatario_usuario_id: string | null; // public.usuarios.id del destinatario
+    destinatario_nombre?: string | null;
+    nombre_usuario: string | null;
+    rol_usuario: string | null;
+    mensaje: string;
+    creado_en: string;
+}
+
+interface ChatContacto {
+    usuario_id: string; // public.usuarios.id
+    auth_id: string; // auth.users.id
+    nombre: string;
+    rol: string | null;
+}
 interface PlanFeature {
     feature: string;
     habilitado: boolean;
@@ -262,6 +281,7 @@ export default function DashboardCompleto() {
     const emailEditarUsuarioRef = useRef('');
     const passwordDemoSolicitudRef = useRef('FleetVision123');
     const confirmacionBorrarUsuarioRef = useRef('');
+    const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
     // -------------------- ESTADOS PRINCIPALES --------------------
     const [cargando, setCargando] = useState(true);
@@ -429,6 +449,17 @@ export default function DashboardCompleto() {
         { id: '1', título: '¡Bienvenido!', mensaje: 'Sistema cargado correctamente', tipo: 'info', fecha: new Date(), leída: false, icono: '👋' }
     ]);
 
+    // -------------------- ESTADOS PARA CHAT INTERNO ---------------
+    const [chatAbierto, setChatAbierto] = useState(false);
+    const [chatMensajes, setChatMensajes] = useState<ChatMensaje[]>([]);
+    const [mensajeChat, setMensajeChat] = useState('');
+    const [cargandoChat, setCargandoChat] = useState(false);
+    const [enviandoMensajeChat, setEnviandoMensajeChat] = useState(false);
+    const [errorChat, setErrorChat] = useState<string | null>(null);
+    const [contactosChat, setContactosChat] = useState<ChatContacto[]>([]);
+    const [contactoChatSeleccionado, setContactoChatSeleccionado] = useState<ChatContacto | null>(null);
+    const [cargandoContactosChat, setCargandoContactosChat] = useState(false);
+
     // =============================================================
     // 🟡 SECCIÓN AMARILLA – Efectos (useEffect)
     // =============================================================
@@ -525,6 +556,125 @@ export default function DashboardCompleto() {
     }, [esAdminGlobal]);
 
 
+    const mensajePerteneceAConversacionActual = (
+        mensaje: Partial<ChatMensaje>,
+        contacto: ChatContacto | null
+    ) => {
+        if (!mensaje || !contacto || !datosUsuario?.id || !datosUsuario?.usuario_id) {
+            return false;
+        }
+
+        const enviadoPorMi =
+            mensaje.user_id === datosUsuario.id &&
+            mensaje.destinatario_usuario_id === contacto.usuario_id;
+
+        const recibidoParaMi =
+            mensaje.user_id === contacto.auth_id &&
+            mensaje.destinatario_usuario_id === datosUsuario.usuario_id;
+
+        return enviadoPorMi || recibidoParaMi;
+    };
+
+    // --- Efecto para cargar contactos del chat privado por empresa ---
+    useEffect(() => {
+        if (!empresaActual?.id || !datosUsuario?.usuario_id) {
+            setContactosChat([]);
+            setContactoChatSeleccionado(null);
+            setChatMensajes([]);
+            return;
+        }
+
+        cargarContactosChat(empresaActual.id);
+    }, [empresaActual?.id, datosUsuario?.usuario_id]);
+
+    // --- Efecto para cargar y escuchar mensajes privados del chat interno ---
+    useEffect(() => {
+        if (
+            !empresaActual?.id ||
+            !datosUsuario?.id ||
+            !datosUsuario?.usuario_id ||
+            !contactoChatSeleccionado
+        ) {
+            setChatMensajes([]);
+            return;
+        }
+
+        cargarMensajesChat(empresaActual.id, contactoChatSeleccionado);
+
+        const canalChat = supabase
+            .channel(`chat_privado_${empresaActual.id}_${datosUsuario.usuario_id}_${contactoChatSeleccionado.usuario_id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'chat_mensajes',
+                    filter: `empresa_id=eq.${empresaActual.id}`,
+                },
+                (payload) => {
+                    const nuevoMensaje = payload.new as ChatMensaje;
+
+                    if (!mensajePerteneceAConversacionActual(nuevoMensaje, contactoChatSeleccionado)) {
+                        return;
+                    }
+
+                    setChatMensajes((prev) => {
+                        if (prev.some((mensaje) => mensaje.id === nuevoMensaje.id)) {
+                            return prev;
+                        }
+
+                        return [...prev, nuevoMensaje].slice(-80);
+                    });
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'DELETE',
+                    schema: 'public',
+                    table: 'chat_mensajes',
+                    filter: `empresa_id=eq.${empresaActual.id}`,
+                },
+                (payload) => {
+                    const mensajeEliminado = payload.old as Partial<ChatMensaje>;
+
+                    if (!mensajeEliminado.id) return;
+
+                    setChatMensajes((prev) =>
+                        prev.filter((mensaje) => mensaje.id !== mensajeEliminado.id)
+                    );
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(canalChat);
+        };
+    }, [
+        empresaActual?.id,
+        datosUsuario?.id,
+        datosUsuario?.usuario_id,
+        contactoChatSeleccionado?.usuario_id,
+        contactoChatSeleccionado?.auth_id,
+    ]);
+
+    // --- Efecto para mantener el scroll del chat abajo ---
+    useEffect(() => {
+        if (!chatAbierto) return;
+
+        const temporizador = window.setTimeout(() => {
+            if (chatScrollRef.current) {
+                chatScrollRef.current.scrollTo({
+                    top: chatScrollRef.current.scrollHeight,
+                    behavior: 'smooth',
+                });
+            }
+        }, 80);
+
+        return () => window.clearTimeout(temporizador);
+    }, [chatMensajes.length, chatAbierto]);
+
+
     // =============================================================
     // 🔵 SECCIÓN AZUL – Funciones de gestión de empresa
     // =============================================================
@@ -564,6 +714,166 @@ export default function DashboardCompleto() {
     const cerrarModalSistema = () => {
         setModalSistema(null);
     };
+
+    const formatearHoraChat = (fecha: string) => {
+        try {
+            return new Intl.DateTimeFormat('es-CL', {
+                hour: '2-digit',
+                minute: '2-digit',
+            }).format(new Date(fecha));
+        } catch {
+            return '';
+        }
+    };
+
+    const cargarContactosChat = async (empresaId: string) => {
+        if (!empresaId || !datosUsuario?.usuario_id) return;
+
+        try {
+            setCargandoContactosChat(true);
+            setErrorChat(null);
+
+            const { data, error } = await supabase.rpc('chat_listar_contactos_empresa', {
+                p_empresa_id: empresaId,
+            });
+
+            if (error) {
+                console.error('Error cargando contactos del chat:', error);
+                setErrorChat('No se pudieron cargar las personas de esta empresa.');
+                setContactosChat([]);
+                setContactoChatSeleccionado(null);
+                return;
+            }
+
+            const contactos = ((data || []) as ChatContacto[])
+                .filter((contacto) => contacto.usuario_id && contacto.auth_id);
+
+            setContactosChat(contactos);
+
+            setContactoChatSeleccionado((actual) => {
+                if (actual && contactos.some((contacto) => contacto.usuario_id === actual.usuario_id)) {
+                    return actual;
+                }
+
+                return contactos[0] || null;
+            });
+        } catch (error: any) {
+            console.error('Error general cargando contactos del chat:', error);
+            setErrorChat(error?.message || 'Ocurrió un error cargando las personas del chat.');
+            setContactosChat([]);
+            setContactoChatSeleccionado(null);
+        } finally {
+            setCargandoContactosChat(false);
+        }
+    };
+
+    const cargarMensajesChat = async (empresaId: string, contacto: ChatContacto | null) => {
+        if (!empresaId || !contacto || !datosUsuario?.id || !datosUsuario?.usuario_id) return;
+
+        try {
+            setCargandoChat(true);
+            setErrorChat(null);
+
+            const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+            const { data, error } = await supabase
+                .from('chat_mensajes')
+                .select('id, empresa_id, user_id, destinatario_usuario_id, destinatario_nombre, nombre_usuario, rol_usuario, mensaje, creado_en')
+                .eq('empresa_id', empresaId)
+                .gte('creado_en', desde)
+                .or(
+                    `and(user_id.eq.${datosUsuario.id},destinatario_usuario_id.eq.${contacto.usuario_id}),and(user_id.eq.${contacto.auth_id},destinatario_usuario_id.eq.${datosUsuario.usuario_id})`
+                )
+                .order('creado_en', { ascending: true })
+                .limit(80);
+
+            if (error) {
+                console.error('Error cargando chat privado:', error);
+                setErrorChat('No se pudieron cargar los mensajes privados.');
+                setChatMensajes([]);
+                return;
+            }
+
+            setChatMensajes((data || []) as ChatMensaje[]);
+        } catch (error) {
+            console.error('Error general cargando chat privado:', error);
+            setErrorChat('Ocurrió un error cargando el chat privado.');
+            setChatMensajes([]);
+        } finally {
+            setCargandoChat(false);
+        }
+    };
+
+    const enviarMensajeChat = async () => {
+        const mensajeLimpio = mensajeChat.trim();
+
+        if (!mensajeLimpio || enviandoMensajeChat) return;
+
+        if (!empresaActual?.id) {
+            setErrorChat('No hay empresa seleccionada para enviar el mensaje.');
+            return;
+        }
+
+        if (!datosUsuario?.id || !datosUsuario?.usuario_id) {
+            setErrorChat('No se pudo identificar tu usuario para enviar el mensaje.');
+            return;
+        }
+
+        if (!contactoChatSeleccionado) {
+            setErrorChat('Selecciona una persona de la empresa antes de enviar.');
+            return;
+        }
+
+        if (mensajeLimpio.length > 600) {
+            setErrorChat('El mensaje es muy largo. Máximo 600 caracteres.');
+            return;
+        }
+
+        try {
+            setEnviandoMensajeChat(true);
+            setErrorChat(null);
+
+            const { data, error } = await supabase.rpc('chat_enviar_mensaje_privado', {
+                p_empresa_id: empresaActual.id,
+                p_destinatario_usuario_id: contactoChatSeleccionado.usuario_id,
+                p_mensaje: mensajeLimpio,
+            });
+
+            if (error) {
+                const detalleError =
+                    `Mensaje: ${error.message || 'sin mensaje'}\n` +
+                    `Código: ${error.code || 'sin código'}\n` +
+                    `Detalle: ${error.details || 'sin detalle'}\n` +
+                    `Hint: ${error.hint || 'sin hint'}`;
+
+                console.log('Error enviando mensaje privado:', detalleError, error);
+                setErrorChat(error.message || 'No se pudo enviar el mensaje privado.');
+                return;
+            }
+
+            setMensajeChat('');
+
+            const mensajeCreado = Array.isArray(data) ? data[0] : data;
+
+            if (mensajeCreado) {
+                const nuevoMensaje = mensajeCreado as ChatMensaje;
+
+                setChatMensajes((prev) => {
+                    if (prev.some((mensaje) => mensaje.id === nuevoMensaje.id)) {
+                        return prev;
+                    }
+
+                    return [...prev, nuevoMensaje].slice(-80);
+                });
+            }
+        } catch (error: any) {
+            console.error('Error general enviando mensaje privado:', error);
+            setErrorChat(error?.message || 'Ocurrió un error enviando el mensaje privado.');
+        } finally {
+            setEnviandoMensajeChat(false);
+        }
+    };
+
     const formatearRolEmpresaVisual = (rol?: string | null) => {
         const limpio = (rol || '')
             .trim()
@@ -14110,6 +14420,253 @@ export default function DashboardCompleto() {
         </div>
     );
 
+
+    const ChatInterno = () => {
+        if (!empresaActual || !datosUsuario) return null;
+
+        const usuarioActualId = datosUsuario.id;
+        const contactoSeleccionado = contactoChatSeleccionado;
+
+        return (
+            <>
+                <button
+                    type="button"
+                    onClick={() => setChatAbierto((prev) => !prev)}
+                    className="fixed bottom-20 right-6 z-[850] flex items-center gap-3 rounded-full border border-cyan-400/40 bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 px-5 py-3 text-sm font-black text-white shadow-2xl shadow-cyan-500/30 transition-all hover:scale-105 hover:shadow-cyan-400/40"
+                    title="Abrir chat privado FleetVision"
+                >
+                    <span className="text-xl">💬</span>
+                    <span className="hidden sm:inline">Chat interno</span>
+                </button>
+
+                {chatAbierto && (
+                    <div className="fixed bottom-36 right-6 z-[900] flex h-[580px] w-[min(760px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-cyan-500/25 bg-slate-950/95 shadow-2xl shadow-cyan-500/20 backdrop-blur-xl">
+                        <div className="border-b border-white/10 bg-gradient-to-r from-cyan-950/80 via-slate-950 to-blue-950/80 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-xs font-bold uppercase tracking-[0.25em] text-cyan-300/80">
+                                        FleetVision
+                                    </p>
+                                    <h3 className="mt-1 text-lg font-black text-white">
+                                        Chat privado interno
+                                    </h3>
+                                    <p className="mt-1 text-xs text-slate-400">
+                                        {empresaActual.nombre} · mensajes privados · se limpia cada 24 horas
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setChatAbierto(false)}
+                                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-black text-slate-300 transition-all hover:bg-white/10 hover:text-white"
+                                    title="Cerrar chat"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+
+                        {errorChat && (
+                            <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-3 text-xs font-bold text-red-200">
+                                {errorChat}
+                            </div>
+                        )}
+
+                        <div className="flex min-h-0 flex-1">
+                            <div className="w-56 shrink-0 border-r border-white/10 bg-slate-950/80">
+                                <div className="border-b border-white/10 px-3 py-3">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+                                        Personas
+                                    </p>
+                                    <p className="mt-1 text-xs font-bold text-cyan-300">
+                                        Misma empresa
+                                    </p>
+                                </div>
+
+                                <div className="max-h-[460px] overflow-y-auto p-2 [scrollbar-color:rgba(34,211,238,0.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-cyan-500/40">
+                                    {cargandoContactosChat ? (
+                                        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs font-bold text-slate-400">
+                                            Cargando personas...
+                                        </div>
+                                    ) : contactosChat.length === 0 ? (
+                                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100">
+                                            No hay otros usuarios activos en esta empresa para conversar.
+                                        </div>
+                                    ) : (
+                                        contactosChat.map((contacto) => {
+                                            const seleccionado = contactoSeleccionado?.usuario_id === contacto.usuario_id;
+
+                                            return (
+                                                <button
+                                                    key={contacto.usuario_id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setContactoChatSeleccionado(contacto);
+                                                        setMensajeChat('');
+                                                        setErrorChat(null);
+                                                    }}
+                                                    className={`mb-2 w-full rounded-2xl border p-3 text-left transition-all ${seleccionado
+                                                            ? 'border-cyan-400/50 bg-cyan-500/15 shadow-lg shadow-cyan-500/10'
+                                                            : 'border-white/10 bg-white/[0.04] hover:border-cyan-400/30 hover:bg-white/[0.07]'
+                                                        }`}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${seleccionado ? 'bg-cyan-500 text-white' : 'bg-slate-800 text-slate-300'}`}>
+                                                            {contacto.nombre?.charAt(0)?.toUpperCase() || 'U'}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-xs font-black text-white">
+                                                                {contacto.nombre || 'Usuario'}
+                                                            </p>
+                                                            <p className="truncate text-[10px] font-bold text-slate-500">
+                                                                {contacto.rol || 'Sin rol'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex min-w-0 flex-1 flex-col">
+                                <div className="border-b border-white/10 bg-white/[0.03] px-4 py-3">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
+                                        Para
+                                    </p>
+                                    <p className="mt-1 truncate text-sm font-black text-white">
+                                        {contactoSeleccionado
+                                            ? `${contactoSeleccionado.nombre} · ${contactoSeleccionado.rol || 'Sin rol'}`
+                                            : 'Selecciona una persona'}
+                                    </p>
+                                </div>
+
+                                <div
+                                    ref={chatScrollRef}
+                                    className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 [scrollbar-color:rgba(34,211,238,0.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-cyan-500/40"
+                                >
+                                    {!contactoSeleccionado ? (
+                                        <div className="flex h-full flex-col items-center justify-center text-center">
+                                            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-500/25 bg-cyan-500/10 text-2xl">
+                                                👤
+                                            </div>
+                                            <p className="text-sm font-black text-white">
+                                                Elige a quién enviar
+                                            </p>
+                                            <p className="mt-1 max-w-[260px] text-xs leading-relaxed text-slate-400">
+                                                Selecciona una persona de la misma empresa para abrir un chat privado.
+                                            </p>
+                                        </div>
+                                    ) : cargandoChat ? (
+                                        <div className="flex h-full items-center justify-center text-sm font-bold text-slate-400">
+                                            Cargando mensajes...
+                                        </div>
+                                    ) : chatMensajes.length === 0 ? (
+                                        <div className="flex h-full flex-col items-center justify-center text-center">
+                                            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-500/25 bg-cyan-500/10 text-2xl">
+                                                💬
+                                            </div>
+                                            <p className="text-sm font-black text-white">
+                                                Sin mensajes con {contactoSeleccionado.nombre}
+                                            </p>
+                                            <p className="mt-1 max-w-[280px] text-xs leading-relaxed text-slate-400">
+                                                Escribe el primer mensaje privado para coordinar dentro de la empresa.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        chatMensajes.map((mensaje) => {
+                                            const esMio = mensaje.user_id === usuarioActualId;
+
+                                            return (
+                                                <div
+                                                    key={mensaje.id}
+                                                    className={`flex ${esMio ? 'justify-end' : 'justify-start'}`}
+                                                >
+                                                    <div
+                                                        className={`max-w-[82%] rounded-2xl border px-3 py-2 shadow-lg ${esMio
+                                                                ? 'border-cyan-400/30 bg-cyan-500/15 text-cyan-50'
+                                                                : 'border-white/10 bg-white/[0.06] text-slate-100'
+                                                            }`}
+                                                    >
+                                                        <div className="mb-1 flex items-center justify-between gap-3">
+                                                            <span
+                                                                className={`truncate text-[11px] font-black ${esMio ? 'text-cyan-200' : 'text-slate-300'
+                                                                    }`}
+                                                            >
+                                                                {esMio ? 'Tú' : mensaje.nombre_usuario || 'Usuario'}
+                                                            </span>
+                                                            <span className="shrink-0 text-[10px] font-bold text-slate-500">
+                                                                {formatearHoraChat(mensaje.creado_en)}
+                                                            </span>
+                                                        </div>
+
+                                                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                                            {mensaje.mensaje}
+                                                        </p>
+
+                                                        {mensaje.rol_usuario && (
+                                                            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                                {mensaje.rol_usuario}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+
+                                <form
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        enviarMensajeChat();
+                                    }}
+                                    className="border-t border-white/10 bg-slate-950/95 p-3"
+                                >
+                                    <div className="flex items-end gap-2">
+                                        <textarea
+                                            value={mensajeChat}
+                                            onChange={(e) => setMensajeChat(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && !e.shiftKey) {
+                                                    e.preventDefault();
+                                                    enviarMensajeChat();
+                                                }
+                                            }}
+                                            rows={2}
+                                            maxLength={600}
+                                            disabled={!contactoSeleccionado || enviandoMensajeChat}
+                                            placeholder={
+                                                contactoSeleccionado
+                                                    ? `Mensaje privado para ${contactoSeleccionado.nombre}...`
+                                                    : 'Selecciona una persona para escribir...'
+                                            }
+                                            className="min-h-[46px] flex-1 resize-none rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white outline-none transition-all placeholder:text-slate-500 focus:border-cyan-400/60 focus:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                                        />
+
+                                        <button
+                                            type="submit"
+                                            disabled={!contactoSeleccionado || !mensajeChat.trim() || enviandoMensajeChat}
+                                            className="rounded-2xl border border-cyan-400/40 bg-cyan-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-cyan-500/20 transition-all hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {enviandoMensajeChat ? '...' : 'Enviar'}
+                                        </button>
+                                    </div>
+
+                                    <div className="mt-2 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                                        <span>Privado · Enter envía · Shift + Enter baja línea</span>
+                                        <span>{mensajeChat.length}/600</span>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </>
+        );
+    };
+
     // =============================================================
     // ⚪ SECCIÓN BLANCA – Render principal
     // =============================================================
@@ -14506,6 +15063,8 @@ export default function DashboardCompleto() {
                 </div>
 
             )}
+
+            {empresaActual && datosUsuario && ChatInterno()}
 
             {/* Footer */}
             <footer
