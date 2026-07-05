@@ -171,6 +171,59 @@ export async function POST(request: Request) {
                 403
             );
         }
+        if (authId === adminAuthId) {
+            await registrarAuditoria(adminAuthId, 'intento_borrar_propio_usuario_bloqueado', 'usuarios', usuarioId, {
+                motivo: 'Intentó borrar su propio usuario',
+                usuario_id: usuarioId,
+                auth_id: authId,
+                empresa_id: empresaId,
+                usuario_empresa_id: usuarioEmpresaId,
+            });
+
+            return respuestaError(
+                'Acción bloqueada.',
+                'No puedes borrar tu propio usuario dueño.',
+                403
+            );
+        }
+
+        const { data: duenoProtegido, error: errorDuenoProtegido } = await supabaseAdmin
+            .from('duenos_globales')
+            .select('id, email, nombre, activo')
+            .eq('auth_id', authId)
+            .eq('activo', true)
+            .maybeSingle();
+
+        if (errorDuenoProtegido) {
+            await registrarAuditoria(adminAuthId, 'error_validando_dueno_protegido', 'usuarios', usuarioId, {
+                usuario_id: usuarioId,
+                auth_id: authId,
+                error: errorDuenoProtegido.message,
+            });
+
+            return respuestaError(
+                'No se pudo validar el dueño protegido.',
+                'Por seguridad, FleetVision bloqueó el borrado.',
+                500
+            );
+        }
+
+        if (duenoProtegido) {
+            await registrarAuditoria(adminAuthId, 'intento_borrar_dueno_bloqueado', 'usuarios', usuarioId, {
+                motivo: 'Usuario objetivo es Dueño FleetVision activo',
+                usuario_id: usuarioId,
+                auth_id: authId,
+                empresa_id: empresaId,
+                usuario_empresa_id: usuarioEmpresaId,
+                dueno_protegido: duenoProtegido,
+            });
+
+            return respuestaError(
+                'Dueño protegido.',
+                'Este usuario es Dueño FleetVision activo y no se puede borrar.',
+                403
+            );
+        }
 
         const { data: usuarioActual, error: errorUsuarioActual } =
             await supabaseAdmin

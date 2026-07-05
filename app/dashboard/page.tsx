@@ -271,6 +271,26 @@ export default function DashboardCompleto() {
 
     // -------------------- ESTADOS PARA GESTIÓN DE ACTIVOS --------
     const [mostrarModalAgregarActivo, setMostrarModalAgregarActivo] = useState(false);
+    const [errorAgregarActivo, setErrorAgregarActivo] = useState<string | null>(null);
+    const [modalGestionActivoAbierto, setModalGestionActivoAbierto] = useState(false);
+    const [activoGestionando, setActivoGestionando] = useState<Activo | null>(null);
+    const [guardandoGestionActivo, setGuardandoGestionActivo] = useState(false);
+
+    const [formGestionActivo, setFormGestionActivo] = useState({
+        marca: '',
+        modelo: '',
+        tipo: '',
+        año: new Date().getFullYear(),
+        patente: '',
+        estado: 'saludable' as 'saludable' | 'advertencia' | 'crítico',
+        kilometraje: 0,
+    });
+    const [busquedaActivos, setBusquedaActivos] = useState('');
+    const [filtrosActivosAbierto, setFiltrosActivosAbierto] = useState(false);
+    const [filtrosActivos, setFiltrosActivos] = useState({
+        patente: '',
+        modelo: '',
+    });
     const [nuevoActivo, setNuevoActivo] = useState({
         marca: '',
         modelo: '',
@@ -384,6 +404,8 @@ export default function DashboardCompleto() {
     const [modalConfirmarCambioEmpresaUsuario, setModalConfirmarCambioEmpresaUsuario] = useState(false);
 
     const [modalSistema, setModalSistema] = useState<ModalSistema | null>(null);
+    const [ordenParaEliminar, setOrdenParaEliminar] = useState<OrdenTrabajo | null>(null);
+    const [eliminandoOTId, setEliminandoOTId] = useState<string | null>(null);
     const [esAdminGlobal, setEsAdminGlobal] = useState(false);
     const [rolGlobal, setRolGlobal] = useState<RolGlobalUsuario | null>(null);
 
@@ -1772,7 +1794,7 @@ export default function DashboardCompleto() {
             setGuardandoEditarUsuario(false);
         }
     };
-    const abrirModalBorrarUsuario = () => {
+    const abrirModalBorrarUsuario = async () => {
         if (!usuarioGestionSeleccionado) {
             mostrarModalSistema(
                 'advertencia',
@@ -1783,10 +1805,91 @@ export default function DashboardCompleto() {
             return;
         }
 
-        confirmacionBorrarUsuarioRef.current = '';
-        setModoConfirmacionDefinitiva(false);
-        setErrorModalBorrarUsuario('');
-        setModalBorrarUsuarioAbierto(true);
+        try {
+            setBorrandoUsuario(true);
+            setErrorModalBorrarUsuario('');
+
+            const authIdSeleccionado = usuarioGestionSeleccionado.auth_id;
+
+            if (!authIdSeleccionado) {
+                mostrarModalSistema(
+                    'error',
+                    'Usuario sin Auth ID',
+                    'No se puede borrar este usuario porque no tiene auth_id válido.',
+                    'Revisa el registro antes de continuar.'
+                );
+                return;
+            }
+
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+            if (sessionError || !sessionData.session?.user?.id) {
+                mostrarModalSistema(
+                    'error',
+                    'Sesión no válida',
+                    'No se pudo validar tu usuario actual.',
+                    'Cierra sesión, vuelve a entrar e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const authIdActual = sessionData.session.user.id;
+
+            if (authIdSeleccionado === authIdActual) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Acción bloqueada',
+                    'No puedes borrar tu propio usuario.',
+                    'FleetVision protegió tu cuenta para evitar perder el acceso.'
+                );
+                return;
+            }
+
+            const { data: esDuenoGlobal, error: errorDuenoGlobal } = await supabase.rpc(
+                'dueno_es_usuario_global',
+                {
+                    p_auth_id: authIdSeleccionado,
+                }
+            );
+
+            if (errorDuenoGlobal) {
+                console.error('Error validando dueño global:', errorDuenoGlobal);
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo validar el usuario',
+                    'FleetVision no pudo comprobar si este usuario es Dueño global.',
+                    'Por seguridad, el borrado fue bloqueado.'
+                );
+                return;
+            }
+
+            if (esDuenoGlobal) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Dueño protegido',
+                    'Este usuario es Dueño FleetVision y no se puede borrar.',
+                    'Si necesitas cambiar dueños, primero agrega otro Dueño global desde Supabase.'
+                );
+                return;
+            }
+
+            confirmacionBorrarUsuarioRef.current = '';
+            setModoConfirmacionDefinitiva(false);
+            setErrorModalBorrarUsuario('');
+            setModalBorrarUsuarioAbierto(true);
+        } catch (error: any) {
+            console.error('Error preparando borrado de usuario:', error);
+
+            mostrarModalSistema(
+                'error',
+                'Error inesperado',
+                error?.message || 'No se pudo preparar el borrado del usuario.',
+                'Revisa la consola del navegador.'
+            );
+        } finally {
+            setBorrandoUsuario(false);
+        }
     };
 
     const ejecutarBorradoUsuarioSeguro = async (confirmacion = '') => {
@@ -1804,16 +1907,71 @@ export default function DashboardCompleto() {
             setBorrandoUsuario(true);
             setErrorModalBorrarUsuario('');
 
+            const authIdSeleccionado = usuarioGestionSeleccionado.auth_id;
+
+            if (!authIdSeleccionado) {
+                setModalBorrarUsuarioAbierto(false);
+                setUsuarioGestionSeleccionado(null);
+
+                mostrarModalSistema(
+                    'error',
+                    'Usuario sin Auth ID',
+                    'No se puede borrar este usuario porque no tiene auth_id válido.',
+                    'Revisa el registro antes de continuar.'
+                );
+                return;
+            }
+
             const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
-            if (sessionError || !sessionData.session?.access_token) {
+            if (sessionError || !sessionData.session?.access_token || !sessionData.session?.user?.id) {
                 setModalBorrarUsuarioAbierto(false);
+                setUsuarioGestionSeleccionado(null);
 
                 mostrarModalSistema(
                     'error',
                     'Sesión no válida',
                     'No se pudo obtener tu sesión actual.',
                     'Cierra sesión, vuelve a entrar e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const authIdActual = sessionData.session.user.id;
+
+            if (authIdSeleccionado === authIdActual) {
+                setModalBorrarUsuarioAbierto(false);
+                setUsuarioGestionSeleccionado(null);
+                setModoConfirmacionDefinitiva(false);
+                confirmacionBorrarUsuarioRef.current = '';
+
+                mostrarModalSistema(
+                    'advertencia',
+                    'Acción bloqueada',
+                    'No puedes borrar tu propio usuario.',
+                    'FleetVision protegió tu cuenta para evitar perder el acceso.'
+                );
+                return;
+            }
+
+            const { data: esDuenoGlobal, error: errorDuenoGlobal } = await supabase.rpc(
+                'dueno_es_usuario_global',
+                {
+                    p_auth_id: authIdSeleccionado,
+                }
+            );
+
+            if (errorDuenoGlobal || esDuenoGlobal) {
+                setModalBorrarUsuarioAbierto(false);
+                setUsuarioGestionSeleccionado(null);
+                setModoConfirmacionDefinitiva(false);
+                confirmacionBorrarUsuarioRef.current = '';
+
+                mostrarModalSistema(
+                    'advertencia',
+                    'Dueño protegido',
+                    'Este usuario es Dueño FleetVision y no se puede borrar.',
+                    'El borrado fue bloqueado antes de llamar a la API.'
                 );
                 return;
             }
@@ -1836,13 +1994,22 @@ export default function DashboardCompleto() {
             const resultado = await respuesta.json();
 
             if (!respuesta.ok || !resultado.ok) {
+                await Promise.all([
+                    cargarUsuariosDueno(),
+                    cargarEmpresasDueno(),
+                ]);
+
                 setModalBorrarUsuarioAbierto(false);
+                setUsuarioGestionSeleccionado(null);
+                setModoConfirmacionDefinitiva(false);
+                setErrorModalBorrarUsuario('');
+                confirmacionBorrarUsuarioRef.current = '';
 
                 mostrarModalSistema(
                     'advertencia',
-                    'No se pudo revisar el usuario',
-                    resultado.error || 'La ruta segura rechazó la revisión.',
-                    resultado.detalle || 'Revisa la consola o la terminal de Next.js.'
+                    'No se pudo borrar el usuario',
+                    resultado.error || resultado.mensaje || 'La ruta segura rechazó la acción.',
+                    resultado.detalle || 'La lista fue actualizada automáticamente para evitar usuarios fantasma.'
                 );
                 return;
             }
@@ -1854,11 +2021,16 @@ export default function DashboardCompleto() {
                 return;
             }
 
-            await cargarUsuariosDueno();
-            await cargarEmpresasDueno();
+            await Promise.all([
+                cargarUsuariosDueno(),
+                cargarEmpresasDueno(),
+            ]);
 
             setModalBorrarUsuarioAbierto(false);
             setUsuarioGestionSeleccionado(null);
+            setModoConfirmacionDefinitiva(false);
+            setErrorModalBorrarUsuario('');
+            confirmacionBorrarUsuarioRef.current = '';
 
             if (resultado.accion === 'borrado_definitivo') {
                 mostrarModalSistema(
@@ -1904,18 +2076,31 @@ export default function DashboardCompleto() {
                 'exito',
                 'Acción completada',
                 resultado.mensaje || 'La acción sobre el usuario fue completada.',
-                resultado.detalle || ''
+                resultado.detalle || 'La lista fue actualizada automáticamente.'
             );
         } catch (error: any) {
             console.error('Error general borrando usuario:', error);
 
+            try {
+                await Promise.all([
+                    cargarUsuariosDueno(),
+                    cargarEmpresasDueno(),
+                ]);
+            } catch (errorRecarga) {
+                console.error('Error recargando usuarios después de fallo:', errorRecarga);
+            }
+
             setModalBorrarUsuarioAbierto(false);
+            setUsuarioGestionSeleccionado(null);
+            setModoConfirmacionDefinitiva(false);
+            setErrorModalBorrarUsuario('');
+            confirmacionBorrarUsuarioRef.current = '';
 
             mostrarModalSistema(
                 'error',
                 'Error inesperado',
                 error?.message || 'Ocurrió un problema al borrar el usuario.',
-                'Revisa la consola del navegador y la terminal de Next.js.'
+                'La lista fue actualizada automáticamente. Revisa la consola si vuelve a pasar.'
             );
         } finally {
             setBorrandoUsuario(false);
@@ -2426,32 +2611,34 @@ export default function DashboardCompleto() {
         }
 
         try {
+            setErrorAgregarActivo(null);
             const activoParaInsertar = {
-                marca: nuevoActivo.marca,
-                modelo: nuevoActivo.modelo,
-                tipo: nuevoActivo.tipo,
-                año: nuevoActivo.año,
-                patente: nuevoActivo.patente,
-                estado: nuevoActivo.estado,
-                ubicacion: nuevoActivo.ubicación,
-                kilometraje: nuevoActivo.kilometraje,
-                tiempo_activo: nuevoActivo.tiempoActivo,
-                proximo_mantenimiento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                codigo: `ACT-${Date.now()}`,
+                marca: nuevoActivo.marca.trim(),
+                modelo: nuevoActivo.modelo.trim(),
+                tipo: nuevoActivo.tipo || 'Sin tipo',
+                año: Number(nuevoActivo.año) || new Date().getFullYear(),
+                patente: nuevoActivo.patente.trim().toUpperCase(),
+                estado: nuevoActivo.estado || 'saludable',
+                kilometraje: Number(nuevoActivo.kilometraje || 0),
+                empresa_id: empresaActual.id,
+                user_id: datosUsuario?.id || null,
                 created_at: new Date().toISOString(),
-                user_id: datosUsuario?.id,
-                empresa_id: empresaActual.id
+                plan_mantenimiento_id: null,
+                proximo_mantenimiento_km: null,
             };
 
             const { data, error } = await supabase
                 .from('activos')
-                .insert([activoParaInsertar])
-                .select();
+                .insert(activoParaInsertar)
+                .select('*')
+                .single();
 
             if (error) throw error;
 
-            if (data && data[0]) {
+            if (data) {
                 const nuevoActivoLocal: Activo = {
-                    id: data[0].id,
+                    id: data.id,
                     nombre: `${nuevoActivo.marca} ${nuevoActivo.modelo}`,
                     modelo: nuevoActivo.modelo,
                     estado: nuevoActivo.estado,
@@ -2480,6 +2667,19 @@ export default function DashboardCompleto() {
                     empresa_id: ''
                 });
                 setMostrarModalAgregarActivo(false);
+                setErrorAgregarActivo(null);
+
+                setTimeout(() => {
+                    mostrarToastActivoCreado({
+                        marca: nuevoActivo.marca.trim(),
+                        modelo: nuevoActivo.modelo.trim(),
+                        patente: nuevoActivo.patente.trim().toUpperCase(),
+                        tipo: nuevoActivo.tipo || 'Sin tipo',
+                        kilometraje: Number(nuevoActivo.kilometraje || 0),
+                        empresa: empresaActual?.nombre || 'Empresa actual',
+                    });
+                }, 250);
+
                 setNotificaciones(prev => [{
                     id: Date.now().toString(),
                     título: 'Activo Agregado',
@@ -2490,35 +2690,303 @@ export default function DashboardCompleto() {
                     icono: '✅'
                 }, ...prev]);
             }
-        } catch (error) {
-            console.error('Error agregando activo:', error);
-            alert('Error al agregar el activo.');
+        } catch (error: any) {
+            const detalleError =
+                `Mensaje: ${error?.message || 'sin mensaje'}\n` +
+                `Código: ${error?.code || 'sin código'}\n` +
+                `Detalle: ${error?.details || 'sin detalle'}\n` +
+                `Hint: ${error?.hint || 'sin hint'}`;
+
+            console.warn('FleetVision - error agregando activo:', {
+                message: error?.message,
+                code: error?.code,
+                details: error?.details,
+                hint: error?.hint,
+                errorCompleto: error,
+            });
+
+            setErrorAgregarActivo(detalleError);
+        }
+    };
+    const mostrarToastActivoCreado = (activo: {
+        marca: string;
+        modelo: string;
+        patente?: string;
+        tipo?: string;
+        kilometraje?: number;
+        empresa?: string;
+    }) => {
+        const toastAnterior = document.getElementById('fleetvision-toast-activo-creado');
+
+        if (toastAnterior) {
+            toastAnterior.remove();
+        }
+
+        const limpiarTexto = (valor: any) =>
+            String(valor || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+
+        const toast = document.createElement('div');
+        toast.id = 'fleetvision-toast-activo-creado';
+
+        toast.style.position = 'fixed';
+        toast.style.top = '24px';
+        toast.style.right = '24px';
+        toast.style.zIndex = '999999';
+        toast.style.width = '430px';
+        toast.style.maxWidth = 'calc(100vw - 32px)';
+        toast.style.padding = '22px';
+        toast.style.borderRadius = '24px';
+        toast.style.border = '1px solid rgba(34, 211, 238, 0.35)';
+        toast.style.background = 'linear-gradient(135deg, rgba(8, 47, 73, 0.96), rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.96))';
+        toast.style.boxShadow = '0 24px 80px rgba(34, 211, 238, 0.25)';
+        toast.style.color = 'white';
+        toast.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+        toast.style.backdropFilter = 'blur(16px)';
+        toast.style.transform = 'translateY(-12px)';
+        toast.style.opacity = '0';
+        toast.style.transition = 'all 250ms ease';
+
+        toast.innerHTML = `
+        <div style="display:flex; gap:16px; align-items:flex-start;">
+            <div style="
+                width:52px;
+                height:52px;
+                border-radius:18px;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                background:linear-gradient(135deg, #06b6d4, #2563eb);
+                box-shadow:0 12px 30px rgba(34,211,238,0.35);
+                font-size:26px;
+                flex-shrink:0;
+            ">
+                🚚
+            </div>
+
+            <div style="flex:1; min-width:0;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <div>
+                        <p style="margin:0; font-size:12px; font-weight:900; letter-spacing:0.18em; text-transform:uppercase; color:#67e8f9;">
+                            Activo creado
+                        </p>
+                        <h3 style="margin:4px 0 0; font-size:19px; font-weight:900; color:white;">
+                            Agregado correctamente
+                        </h3>
+                    </div>
+
+                    <button id="fleetvision-toast-activo-cerrar" style="
+                        border:1px solid rgba(148,163,184,0.35);
+                        background:rgba(15,23,42,0.7);
+                        color:#cbd5e1;
+                        border-radius:999px;
+                        padding:6px 10px;
+                        cursor:pointer;
+                        font-size:12px;
+                        font-weight:800;
+                    ">
+                        Cerrar
+                    </button>
+                </div>
+
+                <div style="
+                    margin-top:14px;
+                    padding:14px;
+                    border-radius:18px;
+                    background:rgba(15,23,42,0.72);
+                    border:1px solid rgba(148,163,184,0.18);
+                ">
+                    <p style="margin:0 0 8px; font-size:15px; font-weight:900; color:white;">
+                        ${limpiarTexto(activo.marca)} ${limpiarTexto(activo.modelo)}
+                    </p>
+
+                    <p style="margin:0; font-size:13px; line-height:1.65; color:#cbd5e1;">
+                        <strong style="color:#67e8f9;">Empresa:</strong> ${limpiarTexto(activo.empresa || 'Empresa actual')}<br/>
+                        <strong style="color:#67e8f9;">Patente / ID:</strong> ${limpiarTexto(activo.patente || 'Sin patente')}<br/>
+                        <strong style="color:#67e8f9;">Tipo:</strong> ${limpiarTexto(activo.tipo || 'Sin tipo')}<br/>
+                        <strong style="color:#67e8f9;">Medidor:</strong> ${Number(activo.kilometraje || 0).toLocaleString('es-CL')}
+                    </p>
+                </div>
+            </div>
+        </div>
+    `;
+
+        document.body.appendChild(toast);
+
+        const botonCerrar = document.getElementById('fleetvision-toast-activo-cerrar');
+        botonCerrar?.addEventListener('click', () => toast.remove());
+
+        setTimeout(() => {
+            toast.style.opacity = '1';
+            toast.style.transform = 'translateY(0)';
+        }, 50);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-12px)';
+
+            setTimeout(() => {
+                toast.remove();
+            }, 300);
+        }, 6500);
+    };
+
+    const abrirGestionActivo = (activo: Activo) => {
+        setActivoGestionando(activo);
+
+        setFormGestionActivo({
+            marca: activo.marca || '',
+            modelo: activo.modelo || '',
+            tipo: activo.tipo || '',
+            año: activo.año || new Date().getFullYear(),
+            patente: activo.patente || '',
+            estado: activo.estado || 'saludable',
+            kilometraje: Number(activo.kilometraje || 0),
+        });
+
+        setModalGestionActivoAbierto(true);
+    };
+
+
+
+    const guardarGestionActivo = async () => {
+        if (!activoGestionando) {
+            alert('No hay activo seleccionado para gestionar.');
+            return;
+        }
+
+        if (!empresaActual) {
+            alert('No hay empresa seleccionada.');
+            return;
+        }
+
+        const marcaLimpia = formGestionActivo.marca.trim();
+        const modeloLimpio = formGestionActivo.modelo.trim();
+        const patenteLimpia = formGestionActivo.patente.trim().toUpperCase();
+
+        if (!marcaLimpia || !modeloLimpio || !patenteLimpia) {
+            alert('Marca, modelo y patente son obligatorios.');
+            return;
+        }
+
+        try {
+            setGuardandoGestionActivo(true);
+
+            const datosActualizados = {
+                marca: marcaLimpia,
+                modelo: modeloLimpio,
+                tipo: formGestionActivo.tipo.trim() || 'Sin tipo',
+                año: Number(formGestionActivo.año) || new Date().getFullYear(),
+                patente: patenteLimpia,
+                estado: formGestionActivo.estado,
+                kilometraje: Number(formGestionActivo.kilometraje || 0),
+            };
+
+            const { data, error } = await supabase
+                .from('activos')
+                .update(datosActualizados)
+                .eq('id', activoGestionando.id)
+                .eq('empresa_id', empresaActual.id)
+                .select('*')
+                .single();
+
+            if (error) throw error;
+
+            const activoActualizado: Activo = {
+                ...activoGestionando,
+                nombre: `${datosActualizados.marca} ${datosActualizados.modelo}`,
+                marca: datosActualizados.marca,
+                modelo: datosActualizados.modelo,
+                tipo: datosActualizados.tipo,
+                año: datosActualizados.año,
+                patente: datosActualizados.patente,
+                estado: datosActualizados.estado,
+                kilometraje: datosActualizados.kilometraje,
+                empresa_id: data?.empresa_id || activoGestionando.empresa_id,
+            };
+
+            setActivos((prev) =>
+                prev.map((activo) =>
+                    activo.id === activoGestionando.id ? activoActualizado : activo
+                )
+            );
+
+            cerrarGestionActivo();
+
+            mostrarModalSistema(
+                'exito',
+                'Activo actualizado',
+                `${activoActualizado.marca} ${activoActualizado.modelo} fue actualizado correctamente.`,
+                `Patente: ${activoActualizado.patente}\n` +
+                `Estado: ${activoActualizado.estado}\n` +
+                `Medidor: ${Number(activoActualizado.kilometraje || 0).toLocaleString('es-CL')}`
+            );
+        } catch (error: any) {
+            console.error('Error actualizando activo:', error);
+
+            mostrarModalSistema(
+                'error',
+                'No se pudo actualizar el activo',
+                error?.message || 'Supabase rechazó la actualización.',
+                'Revisa si las columnas marca, modelo, tipo, año, patente, estado y kilometraje existen en la tabla activos.'
+            );
+        } finally {
+            setGuardandoGestionActivo(false);
         }
     };
 
     const eliminarActivo = async (id: string, nombre: string) => {
+        if (!empresaActual?.id) {
+            alert('No hay empresa seleccionada.');
+            return;
+        }
+
+        // ✅ Esta es la protección del paso 3
+        // Solo el Dueño FleetVision puede eliminar activos
+        if (!esAdminGlobal) {
+            alert('Solo el Dueño FleetVision puede eliminar activos.');
+            return;
+        }
+
         if (!confirm(`¿Está seguro de eliminar el activo "${nombre}"?`)) return;
+
         try {
-            const { error } = await supabase
-                .from('activos')
-                .delete()
-                .eq('id', id)
-                .eq('empresa_id', empresaActual?.id);
+            const { data, error } = await supabase.rpc('dueno_eliminar_activo', {
+                p_activo_id: id,
+                p_empresa_id: empresaActual.id,
+            });
+
             if (error) throw error;
-            setActivos(prev => prev.filter(activo => activo.id !== id));
-            actualizarMetricasActivos(activos.filter(activo => activo.id !== id));
-            setNotificaciones(prev => [{
-                id: Date.now().toString(),
-                título: 'Activo Eliminado',
-                mensaje: `Se eliminó ${nombre} correctamente`,
-                tipo: 'info',
-                fecha: new Date(),
-                leída: false,
-                icono: '🗑️'
-            }, ...prev]);
-        } catch (error) {
+
+            if (!data?.ok) {
+                alert(data?.mensaje || 'No se pudo eliminar el activo.');
+                return;
+            }
+
+            const activosActualizados = activos.filter((activo) => activo.id !== id);
+
+            setActivos(activosActualizados);
+            actualizarMetricasActivos(activosActualizados);
+
+            setNotificaciones((prev) => [
+                {
+                    id: Date.now().toString(),
+                    título: 'Activo Eliminado',
+                    mensaje: `Se eliminó ${nombre} correctamente`,
+                    tipo: 'info',
+                    fecha: new Date(),
+                    leída: false,
+                    icono: '🗑️',
+                },
+                ...prev,
+            ]);
+        } catch (error: any) {
             console.error('Error eliminando activo:', error);
-            alert('Error al eliminar el activo.');
+            alert(error?.message || 'Error al eliminar el activo.');
         }
     };
 
@@ -2567,19 +3035,8 @@ export default function DashboardCompleto() {
         }
 
         try {
-            const nuevaOrdenData = {
-                descripcion: 'Nueva orden de trabajo',
-                estado: 'creada',
-                prioridad: 'media',
-                fecha_limite: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                asignado_a: datosUsuario?.nombre || 'Sin asignar',
-                tipo: 'Preventivo',
-                activo: 'Nuevo Activo',
-                costo_estimado: 0,
-                costo_real: 0,
-                empresa_id: empresaActual.id,
-                created_at: new Date().toISOString()
-            };
+            const fechaCreacion = new Date();
+            const fechaLimite = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
             if (empresaModoDemo) {
                 const demoId =
@@ -2593,17 +3050,17 @@ export default function DashboardCompleto() {
                     descripción: 'Nueva orden de trabajo demo',
                     estado: 'creada',
                     prioridad: 'media',
-                    fechaCreación: new Date(),
-                    fechaLímite: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                    fechaCreación: fechaCreacion,
+                    fechaLímite: fechaLimite,
                     asignadoA: datosUsuario?.nombre || 'Usuario demo',
                     tipo: 'Preventivo',
                     activo: 'Activo de prueba',
                     costoEstimado: 0,
                     costoReal: 0,
-                    empresa_id: empresaActual.id
+                    empresa_id: empresaActual.id,
                 };
 
-                setÓrdenesTrabajo(prev => [nuevaOrdenDemo, ...prev]);
+                setÓrdenesTrabajo((prev) => [nuevaOrdenDemo, ...prev]);
 
                 mostrarAccionDemo(
                     'OT simulada correctamente',
@@ -2613,40 +3070,114 @@ export default function DashboardCompleto() {
                 return;
             }
 
+            const nuevaOrdenData = {
+                activo_id: null,
+                fecha_creacion: fechaCreacion.toISOString(),
+                kilometraje_programado: null,
+                descripcion: 'Nueva orden de trabajo',
+                estado: 'creada',
+                tipo: 'Preventivo',
+                prioridad: 'media',
+                plan_id: null,
+                empresa_id: empresaActual.id,
+                numero_ot: null,
+                fecha_limite: fechaLimite.toISOString(),
+                fecha_ejecucion: null,
+                asignado_a: datosUsuario?.nombre || 'Sin asignar',
+                costo_estimado: 0,
+                costo_real: null,
+                observaciones: null,
+                updated_at: new Date().toISOString(),
+            };
+
+            console.log('Payload crearNuevaOrden enviado a Supabase:', nuevaOrdenData);
+
             const { data, error } = await supabase
                 .from('ordenes_trabajo')
-                .insert([nuevaOrdenData])
-                .select();
+                .insert(nuevaOrdenData)
+                .select(`
+                id,
+                activo_id,
+                fecha_creacion,
+                kilometraje_programado,
+                descripcion,
+                estado,
+                tipo,
+                prioridad,
+                plan_id,
+                empresa_id,
+                numero_ot,
+                fecha_limite,
+                fecha_ejecucion,
+                asignado_a,
+                costo_estimado,
+                costo_real,
+                observaciones,
+                updated_at
+            `)
+                .single();
 
-            if (error) throw error;
+            if (error) {
+                console.error('Error creando orden - message:', error.message);
+                console.error('Error creando orden - details:', error.details);
+                console.error('Error creando orden - hint:', error.hint);
+                console.error('Error creando orden - code:', error.code);
 
-            if (data && data[0]) {
-                const nuevaOrden: OrdenTrabajo = {
-                    id: data[0].id,
-                    número: `OT-${data[0].id.substring(0, 8)}`,
-                    descripción: 'Nueva orden de trabajo',
-                    estado: 'creada',
-                    prioridad: 'media',
-                    fechaCreación: new Date(),
-                    fechaLímite: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                    asignadoA: datosUsuario?.nombre || 'Sin asignar',
-                    tipo: 'Preventivo',
-                    activo: 'Nuevo Activo',
-                    costoEstimado: 0,
-                    costoReal: 0,
-                    empresa_id: empresaActual.id
-                };
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo crear la orden',
+                    error.message || 'Supabase rechazó la creación de la orden.',
+                    `Código: ${error.code || 'sin código'}\nDetalle: ${error.details || 'sin detalle'}\nHint: ${error.hint || 'sin hint'}`
+                );
 
-                setÓrdenesTrabajo(prev => [nuevaOrden, ...prev]);
+                return;
             }
-        } catch (error) {
-            console.error('Error creando orden:', error);
+
+            if (!data) {
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo crear la orden',
+                    'Supabase no devolvió la orden creada.',
+                    'La consulta no entregó error, pero tampoco devolvió datos.'
+                );
+
+                return;
+            }
+
+            const nuevaOrden: OrdenTrabajo = {
+                id: data.id,
+                número:
+                    data.numero_ot ||
+                    `OT-${data.id.substring(0, 8).toUpperCase()}`,
+                descripción: data.descripcion || 'Nueva orden de trabajo',
+                estado: (data.estado || 'creada') as OrdenTrabajo['estado'],
+                prioridad: (data.prioridad || 'media') as OrdenTrabajo['prioridad'],
+                fechaCreación: new Date(data.fecha_creacion || fechaCreacion),
+                fechaLímite: new Date(data.fecha_limite || fechaLimite),
+                asignadoA: data.asignado_a || datosUsuario?.nombre || 'Sin asignar',
+                tipo: data.tipo || 'Preventivo',
+                activo: 'Sin activo asignado',
+                costoEstimado: Number(data.costo_estimado || 0),
+                costoReal: Number(data.costo_real || 0),
+                empresa_id: data.empresa_id || empresaActual.id,
+            };
+
+            setÓrdenesTrabajo((prev) => [nuevaOrden, ...prev]);
+
+            mostrarModalSistema(
+                'exito',
+                'Orden de trabajo creada',
+                `La OT ${nuevaOrden.número} fue creada correctamente.`,
+                'La orden fue guardada en Supabase usando las columnas reales de ordenes_trabajo.'
+            );
+        } catch (error: any) {
+            console.error('Error creando orden - catch completo:', error);
 
             mostrarModalSistema(
                 'error',
                 'No se pudo crear la orden',
-                'Ocurrió un error al crear la orden de trabajo.',
-                error instanceof Error ? error.message : 'Error desconocido'
+                error?.message || 'Ocurrió un error inesperado al crear la orden de trabajo.',
+                `Código: ${error?.code || 'sin código'}\nDetalle: ${error?.details || 'sin detalle'}\nHint: ${error?.hint || 'sin hint'}`
             );
         }
     };
@@ -3496,8 +4027,13 @@ export default function DashboardCompleto() {
 
                                         <input
                                             type="number"
-                                            value={nuevoActivo.kilometraje}
-                                            onChange={(e) => setNuevoActivo({ ...nuevoActivo, kilometraje: parseInt(e.target.value) || 0 })}
+                                            value={nuevoActivo.kilometraje === 0 ? '' : nuevoActivo.kilometraje}
+                                            onChange={(e) =>
+                                                setNuevoActivo({
+                                                    ...nuevoActivo,
+                                                    kilometraje: e.target.value === '' ? 0 : Number(e.target.value),
+                                                })
+                                            }
                                             className="w-full rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-white outline-none transition-colors placeholder:text-slate-600 focus:border-cyan-500"
                                             placeholder="Ej: 125430"
                                             min="0"
@@ -3631,29 +4167,59 @@ export default function DashboardCompleto() {
                         </div>
 
                         {/* Footer */}
-                        <div className="flex flex-col gap-3 border-t border-cyan-500/10 bg-slate-950/50 px-6 py-5 md:flex-row md:items-center md:justify-between">
-                            <p className="text-xs text-slate-500">
-                                Los campos marcados con * son obligatorios. El activo se guardará en {empresaActual?.nombre}.
-                            </p>
+                        {/* Footer */}
+                        <div className="flex flex-col gap-4 border-t border-cyan-500/10 bg-slate-950/50 px-6 py-5">
+                            {errorAgregarActivo && (
+                                <div className="rounded-3xl border border-red-500/30 bg-red-500/10 p-4 shadow-lg shadow-red-500/10">
+                                    <div className="flex items-start gap-3">
+                                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-500/20 text-xl">
+                                            🚫
+                                        </div>
 
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => setMostrarModalAgregarActivo(false)}
-                                    className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-colors hover:border-slate-500 hover:text-white"
-                                >
-                                    Cancelar
-                                </button>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-sm font-black text-red-300">
+                                                No se pudo agregar el activo
+                                            </p>
 
-                                <button
-                                    onClick={agregarNuevoActivo}
-                                    disabled={!formularioValido}
-                                    className={`rounded-2xl px-6 py-3 text-sm font-bold text-white transition-all ${formularioValido
-                                        ? 'bg-gradient-to-r from-cyan-500 to-blue-500 shadow-lg shadow-cyan-500/20 hover:scale-[1.02] hover:opacity-90'
-                                        : 'cursor-not-allowed bg-slate-700 text-slate-400'
-                                        }`}
-                                >
-                                    {formularioValido ? 'Agregar Activo' : 'Completa los obligatorios'}
-                                </button>
+                                            <p className="mt-1 text-xs leading-relaxed text-red-100/80">
+                                                FleetVision no pudo guardar este activo. Revisa el detalle técnico:
+                                            </p>
+
+                                            <pre className="mt-3 max-h-28 overflow-y-auto whitespace-pre-wrap rounded-2xl border border-red-500/20 bg-slate-950/70 p-3 text-xs leading-relaxed text-slate-300">
+                                                {errorAgregarActivo}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <p className="text-xs text-slate-500">
+                                    Los campos marcados con * son obligatorios. El activo se guardará en {empresaActual?.nombre}.
+                                </p>
+
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={() => {
+                                            setErrorAgregarActivo(null);
+                                            setMostrarModalAgregarActivo(false);
+                                        }}
+                                        className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition-colors hover:border-slate-500 hover:text-white"
+                                    >
+                                        Cancelar
+                                    </button>
+
+                                    <button
+                                        onClick={agregarNuevoActivo}
+                                        disabled={!formularioValido}
+                                        className={`rounded-2xl px-6 py-3 text-sm font-bold text-white transition-all ${formularioValido
+                                            ? 'bg-gradient-to-r from-cyan-500 to-blue-500 shadow-lg shadow-cyan-500/20 hover:scale-[1.02] hover:opacity-90'
+                                            : 'cursor-not-allowed bg-slate-700 text-slate-400'
+                                            }`}
+                                    >
+                                        {formularioValido ? 'Agregar Activo' : 'Completa los obligatorios'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -3663,7 +4229,7 @@ export default function DashboardCompleto() {
     };
 
 
-    /** Tarjeta de activo - Versión profesional */
+    /** Fila de activo - Vista tipo lista profesional */
     const TarjetaActivo = ({ activo }: { activo: Activo }) => {
         const obtenerColorEstado = (estado: string) => {
             switch (estado) {
@@ -3671,28 +4237,28 @@ export default function DashboardCompleto() {
                     return {
                         texto: 'Saludable',
                         icono: '✅',
-                        clase: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+                        clase: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
                         barra: 'from-emerald-500 to-cyan-500',
                     };
                 case 'advertencia':
                     return {
                         texto: 'Advertencia',
                         icono: '⚠️',
-                        clase: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+                        clase: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
                         barra: 'from-amber-500 to-orange-500',
                     };
                 case 'crítico':
                     return {
                         texto: 'Crítico',
                         icono: '🚨',
-                        clase: 'bg-red-500/20 text-red-400 border-red-500/30',
+                        clase: 'bg-red-500/15 text-red-300 border-red-500/30',
                         barra: 'from-red-500 to-orange-500',
                     };
                 default:
                     return {
                         texto: estado || 'Sin estado',
                         icono: '⚙️',
-                        clase: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+                        clase: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
                         barra: 'from-slate-500 to-slate-400',
                     };
             }
@@ -3718,26 +4284,17 @@ export default function DashboardCompleto() {
         };
 
         const obtenerColorMantenimiento = (dias: number) => {
-            if (dias < 0) return 'text-red-400';
-            if (dias <= 7) return 'text-orange-400';
-            if (dias <= 14) return 'text-amber-400';
-            return 'text-emerald-400';
+            if (dias < 0) return 'text-red-300';
+            if (dias <= 7) return 'text-orange-300';
+            if (dias <= 14) return 'text-amber-300';
+            return 'text-emerald-300';
         };
 
         const obtenerBadgeMantenimiento = (dias: number) => {
-            if (dias < 0) {
-                return 'bg-red-500/20 text-red-400 border-red-500/30';
-            }
-
-            if (dias <= 7) {
-                return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
-            }
-
-            if (dias <= 14) {
-                return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-            }
-
-            return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+            if (dias < 0) return 'bg-red-500/15 text-red-300 border-red-500/30';
+            if (dias <= 7) return 'bg-orange-500/15 text-orange-300 border-orange-500/30';
+            if (dias <= 14) return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+            return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
         };
 
         const fechaMantenimiento = activo.próximoMantenimiento instanceof Date
@@ -3753,142 +4310,108 @@ export default function DashboardCompleto() {
         const kilometraje = Number(activo.kilometraje || 0);
         const tieneAlertas = Number(activo.alertasActivas || 0) > 0;
 
+        const tienePlanMantenimiento = Boolean((activo as any).plan_mantenimiento_id);
+
         return (
-            <div className="group relative overflow-hidden rounded-3xl border border-slate-700/50 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-5 backdrop-blur-lg shadow-xl shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/40 hover:shadow-cyan-500/10">
-                <div className="absolute -right-16 -top-16 h-36 w-36 rounded-full bg-cyan-500/5 blur-3xl transition-all group-hover:bg-cyan-500/10" />
+            <div className="group rounded-2xl border border-slate-700/50 bg-slate-950/60 px-4 py-3 shadow-lg shadow-black/10 transition-all hover:border-cyan-500/40 hover:bg-slate-900/70">
+                <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.62fr)_minmax(0,0.72fr)_minmax(0,0.62fr)_minmax(0,0.55fr)_minmax(0,0.68fr)_minmax(0,0.95fr)] xl:items-center">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-cyan-500/10 text-2xl">
+                            {obtenerIconoTipo(activo.tipo)}
+                        </div>
 
-                <div className="relative z-10">
-                    {/* Header */}
-                    <div className="mb-4 flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                            <div className="flex h-13 w-13 min-h-13 min-w-13 items-center justify-center rounded-2xl bg-cyan-500/10 text-3xl">
-                                {obtenerIconoTipo(activo.tipo)}
-                            </div>
-
-                            <div>
-                                <h4 className="text-base font-black text-white">
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="truncate text-sm font-black uppercase text-white">
                                     {activo.nombre}
                                 </h4>
 
-                                <p className="mt-1 text-xs text-slate-400">
-                                    {activo.marca} · {activo.modelo} · {activo.año}
-                                </p>
-
-                                <div className="mt-2 flex flex-wrap items-center gap-2">
-                                    <span className={`rounded-full border px-2 py-1 text-[11px] font-bold ${estado.clase}`}>
-                                        {estado.icono} {estado.texto}
-                                    </span>
-
-                                    <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-1 text-[11px] font-bold text-cyan-300">
-                                        {activo.tipo || 'Sin tipo'}
-                                    </span>
-                                </div>
+                                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${estado.clase}`}>
+                                    {estado.icono} {estado.texto}
+                                </span>
                             </div>
-                        </div>
 
-                        <div className="text-right">
-                            <div className="text-2xl font-black text-cyan-400">
-                                {tiempoActivo}%
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                                Tiempo activo
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Datos principales */}
-                    <div className="mb-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Patente</p>
-                            <p className="mt-1 font-mono text-sm font-black text-white">
-                                {activo.patente || 'SIN PATENTE'}
-                            </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Ubicación</p>
-                            <p className="mt-1 text-sm font-bold text-white">
-                                {activo.ubicación || 'Sin ubicación'}
-                            </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Kilometraje / Medidor</p>
-                            <p className="mt-1 text-sm font-black text-cyan-300">
-                                {kilometraje.toLocaleString('es-CL')}
-                            </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Alertas activas</p>
-                            <p className={`mt-1 text-sm font-black ${tieneAlertas ? 'text-red-400' : 'text-emerald-400'}`}>
-                                {tieneAlertas ? activo.alertasActivas : 0}
+                            <p className="mt-1 truncate text-xs text-slate-400">
+                                {activo.marca} · {activo.modelo} · {activo.año}
                             </p>
                         </div>
                     </div>
 
-                    {/* Tiempo activo */}
-                    <div className="mb-4 rounded-2xl border border-cyan-500/10 bg-cyan-500/5 p-4">
-                        <div className="mb-2 flex items-center justify-between text-xs">
-                            <span className="text-slate-400">Disponibilidad operacional</span>
-                            <span className="font-bold text-cyan-300">{tiempoActivo}%</span>
-                        </div>
-
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                            <div
-                                className={`h-full rounded-full bg-gradient-to-r ${estado.barra}`}
-                                style={{ width: `${Math.min(Math.max(tiempoActivo, 0), 100)}%` }}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Mantenimiento */}
-                    <div className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                        <div className="flex items-center justify-between gap-4">
-                            <div>
-                                <p className="text-xs text-slate-500">Próximo mantenimiento</p>
-
-                                <p className="mt-1 text-sm font-bold text-white">
-                                    {fechaMantenimiento.toLocaleDateString('es-CL', {
-                                        day: '2-digit',
-                                        month: '2-digit',
-                                        year: 'numeric',
-                                    })}
-                                </p>
-                            </div>
-
-                            <span className={`rounded-full border px-3 py-1 text-xs font-bold ${obtenerBadgeMantenimiento(díasHastaMantenimiento)}`}>
-                                {díasHastaMantenimiento < 0 ? '🚨' : díasHastaMantenimiento <= 7 ? '⚠️' : '📅'} {obtenerTextoMantenimiento(díasHastaMantenimiento)}
-                            </span>
-                        </div>
-
-                        <p className={`mt-3 text-xs font-bold ${obtenerColorMantenimiento(díasHastaMantenimiento)}`}>
-                            {díasHastaMantenimiento < 0
-                                ? 'Mantenimiento vencido. Revisar planificación.'
-                                : díasHastaMantenimiento <= 7
-                                    ? 'Mantenimiento próximo. Programar atención.'
-                                    : díasHastaMantenimiento <= 14
-                                        ? 'Mantenimiento dentro de las próximas dos semanas.'
-                                        : 'Mantenimiento bajo control.'}
+                    <div className="flex min-h-[64px] flex-col justify-start pt-0">
+                        <p className="mb-3 text-[13px] font-black uppercase leading-none tracking-[0.22em] text-slate-300">
+                            PATENTE
+                        </p>
+                        <p className="truncate font-mono text-[13px] font-black text-white">
+                            {activo.patente || 'SIN PATENTE'}
                         </p>
                     </div>
 
-                    {/* Acciones */}
-                    <div className="flex items-center justify-between border-t border-white/10 pt-4">
+                    <div className="flex min-h-[64px] flex-col justify-start pt-0">
+                        <p className="mb-3 text-[13px] font-black uppercase leading-none tracking-[0.22em] text-slate-300">
+                            UBICACIÓN
+                        </p>
+                        <p className="truncate text-[13px] font-black text-white">
+                            {activo.ubicación || 'Sin ubicación'}
+                        </p>
+                    </div>
+
+                    <div className="flex min-h-[64px] flex-col justify-start pt-0">
+                        <p className="mb-3 text-[13px] font-black uppercase leading-none tracking-[0.22em] text-slate-300">
+                            MEDIDOR
+                        </p>
+                        <p className="truncate text-[13px] font-black text-cyan-300">
+                            {kilometraje.toLocaleString('es-CL')}
+                        </p>
+                    </div>
+
+                    <div className="flex min-h-[64px] flex-col justify-start pt-0">
+                        <p className="mb-3 text-[13px] font-black uppercase leading-none tracking-[0.22em] text-slate-300">
+                            PLAN
+                        </p>
+                        <p className={`truncate text-[13px] font-black ${tienePlanMantenimiento ? 'text-emerald-300' : 'text-slate-400'}`}>
+                            {tienePlanMantenimiento ? 'Asignado' : 'Sin plan'}
+                        </p>
+                    </div>
+
+                    <div className="flex min-h-[64px] flex-col justify-start pt-0">
+                        <p className="mb-3 text-[13px] font-black uppercase leading-none tracking-[0.22em] text-slate-300">
+                            PRÓX. MANT.
+                        </p>
+                        <p className="truncate text-[13px] font-black text-white">
+                            {fechaMantenimiento.toLocaleDateString('es-CL', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                            })}
+                        </p>
+                    </div>
+
+                    <div className="flex min-w-[150px] flex-col items-end justify-center gap-2">
                         <button
                             type="button"
-                            className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-sm font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
-                            title="Función visual. La programación real se puede conectar después."
+                            className="w-full whitespace-nowrap rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-300 transition-all hover:bg-emerald-500/20"
                         >
-                            Programar
+                            🛠️ Ingresar a taller
                         </button>
 
-                        <button
-                            onClick={() => eliminarActivo(activo.id, activo.nombre)}
-                            className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm font-bold text-red-400 transition-colors hover:bg-red-500/20"
-                        >
-                            Eliminar
-                        </button>
+                        {esAdminGlobal && (
+                            <button
+                                type="button"
+                                onClick={() => abrirGestionActivo(activo)}
+                                className="w-full whitespace-nowrap rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs font-black text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                            >
+                                Gestionar
+                            </button>
+                        )}
+
+                        {esAdminGlobal && (
+                            <button
+                                onClick={() => eliminarActivo(activo.id, activo.nombre)}
+                                className="w-full whitespace-nowrap rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-400 transition-colors hover:bg-red-500/20"
+                            >
+                                Eliminar
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -4132,6 +4655,10 @@ export default function DashboardCompleto() {
     };
 
     /** Gestión de Activos */
+    const cerrarGestionActivo = () => {
+        setModalGestionActivoAbierto(false);
+        setActivoGestionando(null);
+    };
     const GestiónActivos = () => {
         if (!empresaActual) {
             return (
@@ -4149,56 +4676,459 @@ export default function DashboardCompleto() {
             advertencia: activos.filter(a => a.estado === 'advertencia').length,
             críticos: activos.filter(a => a.estado === 'crítico').length,
         };
+        const textoBusquedaActivos = busquedaActivos.trim().toLowerCase();
+        const filtroPatenteActivo = filtrosActivos.patente.trim().toLowerCase();
+        const filtroModeloActivo = filtrosActivos.modelo.trim().toLowerCase();
+
+        const activosFiltrados = activos.filter((activo) => {
+            const patente = (activo.patente || '').toLowerCase();
+            const modelo = (activo.modelo || '').toLowerCase();
+
+            const coincideBusqueda =
+                !textoBusquedaActivos ||
+                patente.includes(textoBusquedaActivos) ||
+                modelo.includes(textoBusquedaActivos);
+
+            const coincidePatente =
+                !filtroPatenteActivo || patente.includes(filtroPatenteActivo);
+
+            const coincideModelo =
+                !filtroModeloActivo || modelo.includes(filtroModeloActivo);
+
+            return coincideBusqueda && coincidePatente && coincideModelo;
+        });
 
         return (
-            <div className="space-y-6">
-                {mostrarModalAgregarActivo && <ModalAgregarActivo />}
-                <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/80 to-slate-950/80 p-6 backdrop-blur-lg">
-                    <div className="flex items-center justify-between mb-6">
-                        <div>
-                            <h3 className="text-2xl font-bold text-white mb-2">🚚 Gestión de Activos</h3>
-                            <p className="text-cyan-400">Vehículos y equipos de {empresaActual.nombre} - {estadísticasActivos.total} activos registrados</p>
+            <div className="h-full w-full">
+                {mostrarModalAgregarActivo && ModalAgregarActivo()}
+                {modalGestionActivoAbierto && activoGestionando && (
+                    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                        <div className="w-full max-w-3xl rounded-[28px] border border-cyan-500/25 bg-slate-950 p-6 shadow-2xl shadow-cyan-500/10">
+                            <div className="mb-6 flex items-start justify-between gap-4">
+                                <div>
+                                    <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                                        Gestión de activo
+                                    </p>
+
+                                    <h3 className="mt-2 text-2xl font-black text-white">
+                                        🛠️ {activoGestionando.nombre || 'Editar activo'}
+                                    </h3>
+
+                                    <p className="mt-1 text-sm text-slate-400">
+                                        Edita los datos principales del vehículo o equipo.
+                                    </p>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={cerrarGestionActivo}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-black text-slate-300 transition hover:bg-white/10 hover:text-white"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Marca *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formGestionActivo.marca}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                marca: e.target.value,
+                                            }))
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Modelo *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formGestionActivo.modelo}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                modelo: e.target.value,
+                                            }))
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Tipo
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formGestionActivo.tipo}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                tipo: e.target.value,
+                                            }))
+                                        }
+                                        placeholder="Camión, vehículo, maquinaria..."
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Año
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={formGestionActivo.año}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                año: Number(e.target.value),
+                                            }))
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Patente / ID *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formGestionActivo.patente}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                patente: e.target.value.toUpperCase(),
+                                            }))
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Estado
+                                    </label>
+                                    <select
+                                        value={formGestionActivo.estado}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                estado: e.target.value as 'saludable' | 'advertencia' | 'crítico',
+                                            }))
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    >
+                                        <option value="saludable">Saludable</option>
+                                        <option value="advertencia">Advertencia</option>
+                                        <option value="crítico">Crítico</option>
+                                    </select>
+                                </div>
+
+                                <div className="md:col-span-2">
+                                    <label className="mb-1 block text-xs font-black uppercase tracking-wide text-slate-400">
+                                        Medidor actual
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={formGestionActivo.kilometraje}
+                                        onChange={(e) =>
+                                            setFormGestionActivo((prev) => ({
+                                                ...prev,
+                                                kilometraje: Number(e.target.value),
+                                            }))
+                                        }
+                                        className="w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-cyan-400"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mt-6 flex flex-col gap-3 border-t border-slate-800 pt-5 md:flex-row md:items-center md:justify-between">
+                                <p className="text-xs text-slate-500">
+                                    Por ahora Gestionar edita solo datos reales de la tabla activos. Después agregamos zona, plan y taller.
+                                </p>
+
+                                <div className="flex items-center justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={cerrarGestionActivo}
+                                        className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-bold text-slate-400 transition hover:border-slate-500 hover:text-white"
+                                    >
+                                        Cancelar
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={guardarGestionActivo}
+                                        disabled={guardandoGestionActivo}
+                                        className="rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-black text-white shadow-lg shadow-cyan-500/20 transition hover:scale-[1.02] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        {guardandoGestionActivo ? 'Guardando...' : 'Guardar cambios'}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => setMostrarModalAgregarActivo(true)} className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2">
-                                <span>+</span><span>Agregar Activo</span>
+                    </div>
+                )}
+
+                <div className="flex h-[calc(115vh-165px)] w-full flex-col overflow-hidden rounded-[28px] border border-cyan-500/25 bg-gradient-to-br from-slate-950/95 via-blue-950/70 to-slate-950/95 p-4 shadow-[0_0_45px_rgba(6,182,212,0.10)] backdrop-blur-lg">
+                    <div className="mb-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-[360px_1fr_auto]">
+                        <div>
+                            <h3 className="mb-1 text-2xl font-bold text-white">
+                                🚚 Gestión de Activos
+                            </h3>
+
+                            <p className="text-cyan-400">
+                                Vehículos y equipos de {empresaActual.nombre} - {estadísticasActivos.total} activos registrados
+                            </p>
+                        </div>
+
+                        {/* Buscador por patente o modelo */}
+                        <div className="relative">
+                            <div className="flex h-11 items-center gap-3 rounded-2xl border border-purple-500/30 bg-purple-500/10 px-4 shadow-[0_0_25px_rgba(168,85,247,0.10)]">
+                                <span className="text-purple-300">🔎</span>
+
+                                <input
+                                    type="text"
+                                    value={busquedaActivos}
+                                    onChange={(e) => setBusquedaActivos(e.target.value)}
+                                    placeholder="Buscar por patente o modelo..."
+                                    className="h-full w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                                />
+
+                                {busquedaActivos && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setBusquedaActivos('')}
+                                        className="rounded-lg px-2 text-sm font-black text-slate-400 transition hover:bg-white/10 hover:text-white"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-end gap-3">
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setFiltrosActivosAbierto((prev) => !prev)}
+                                    className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-black text-amber-300 transition-all hover:bg-amber-500/20"
+                                >
+                                    ⚙️ Filtros
+                                </button>
+
+                                {filtrosActivosAbierto && (
+                                    <div className="absolute right-0 top-12 z-50 w-80 rounded-2xl border border-amber-500/30 bg-slate-950 p-4 shadow-2xl shadow-amber-500/10">
+                                        <div className="mb-3">
+                                            <h4 className="text-sm font-black text-white">
+                                                Filtros de activos
+                                            </h4>
+                                            <p className="text-xs text-slate-400">
+                                                Escribe patente o modelo para filtrar la lista.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <div>
+                                                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-400">
+                                                    Patente
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={filtrosActivos.patente}
+                                                    onChange={(e) =>
+                                                        setFiltrosActivos((prev) => ({
+                                                            ...prev,
+                                                            patente: e.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder="Ej: FHJL59"
+                                                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-white outline-none transition focus:border-amber-400"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-400">
+                                                    Modelo
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={filtrosActivos.modelo}
+                                                    onChange={(e) =>
+                                                        setFiltrosActivos((prev) => ({
+                                                            ...prev,
+                                                            modelo: e.target.value,
+                                                        }))
+                                                    }
+                                                    placeholder="Ej: New Actros"
+                                                    className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm font-bold text-white outline-none transition focus:border-amber-400"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-4 flex justify-between gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setBusquedaActivos('');
+                                                    setFiltrosActivos({
+                                                        patente: '',
+                                                        modelo: '',
+                                                    });
+                                                }}
+                                                className="rounded-xl border border-slate-700 px-3 py-2 text-xs font-black text-slate-300 transition hover:bg-white/10"
+                                            >
+                                                Limpiar
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                onClick={() => setFiltrosActivosAbierto(false)}
+                                                className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-amber-400"
+                                            >
+                                                Aplicar
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm font-black text-amber-300 transition-all hover:bg-amber-500/20"
+                            >
+                                📟 Medidores
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    setErrorAgregarActivo(null);
+                                    setMostrarModalAgregarActivo(true);
+                                }}
+                                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 font-medium text-white transition-opacity hover:opacity-90"
+                            >
+                                <span>+</span>
+                                <span>Agregar Activo</span>
                             </button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                        <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20">
-                            <div className="text-2xl font-bold text-emerald-400">{estadísticasActivos.saludables}</div>
-                            <div className="text-sm text-emerald-300">Saludables</div>
-                            <div className="text-xs text-slate-400 mt-1">{estadísticasActivos.total > 0 ? Math.round((estadísticasActivos.saludables / estadísticasActivos.total) * 100) : 0}% del total</div>
+                    <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                        <div className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xl font-black leading-none text-emerald-400">
+                                        {estadísticasActivos.saludables}
+                                    </div>
+                                    <div className="mt-1 text-xs font-bold text-emerald-300">
+                                        Saludables
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl bg-emerald-500/10 px-2.5 py-1 text-[11px] font-black text-emerald-300">
+                                    {estadísticasActivos.total > 0
+                                        ? Math.round((estadísticasActivos.saludables / estadísticasActivos.total) * 100)
+                                        : 0}
+                                    %
+                                </div>
+                            </div>
                         </div>
-                        <div className="p-4 rounded-xl bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/20">
-                            <div className="text-2xl font-bold text-amber-400">{estadísticasActivos.advertencia}</div>
-                            <div className="text-sm text-amber-300">Advertencia</div>
-                            <div className="text-xs text-slate-400 mt-1">{estadísticasActivos.total > 0 ? Math.round((estadísticasActivos.advertencia / estadísticasActivos.total) * 100) : 0}% del total</div>
+
+                        <div className="rounded-2xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-amber-500/5 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xl font-black leading-none text-amber-400">
+                                        {estadísticasActivos.advertencia}
+                                    </div>
+                                    <div className="mt-1 text-xs font-bold text-amber-300">
+                                        Advertencia
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl bg-amber-500/10 px-2.5 py-1 text-[11px] font-black text-amber-300">
+                                    {estadísticasActivos.total > 0
+                                        ? Math.round((estadísticasActivos.advertencia / estadísticasActivos.total) * 100)
+                                        : 0}
+                                    %
+                                </div>
+                            </div>
                         </div>
-                        <div className="p-4 rounded-xl bg-gradient-to-br from-red-500/10 to-red-500/5 border border-red-500/20">
-                            <div className="text-2xl font-bold text-red-400">{estadísticasActivos.críticos}</div>
-                            <div className="text-sm text-red-300">Críticos</div>
-                            <div className="text-xs text-slate-400 mt-1">{estadísticasActivos.total > 0 ? Math.round((estadísticasActivos.críticos / estadísticasActivos.total) * 100) : 0}% del total</div>
+
+                        <div className="rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-500/10 to-red-500/5 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xl font-black leading-none text-red-400">
+                                        {estadísticasActivos.críticos}
+                                    </div>
+                                    <div className="mt-1 text-xs font-bold text-red-300">
+                                        Críticos
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl bg-red-500/10 px-2.5 py-1 text-[11px] font-black text-red-300">
+                                    {estadísticasActivos.total > 0
+                                        ? Math.round((estadísticasActivos.críticos / estadísticasActivos.total) * 100)
+                                        : 0}
+                                    %
+                                </div>
+                            </div>
                         </div>
-                        <div className="p-4 rounded-xl bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 border border-cyan-500/20">
-                            <div className="text-2xl font-bold text-cyan-400">{estadísticasActivos.total}</div>
-                            <div className="text-sm text-cyan-300">Total Activos</div>
-                            <div className="text-xs text-slate-400 mt-1">Registrados en el sistema</div>
+
+                        <div className="rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-cyan-500/5 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-xl font-black leading-none text-cyan-400">
+                                        {estadísticasActivos.total}
+                                    </div>
+                                    <div className="mt-1 text-xs font-bold text-cyan-300">
+                                        Total Activos
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl bg-cyan-500/10 px-2.5 py-1 text-[11px] font-black text-cyan-300">
+                                    100%
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {activos.length > 0 ? (
-                            activos.map((activo) => <TarjetaActivo key={activo.id} activo={activo} />)
+                    <div className="activos-lista-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden rounded-3xl border border-cyan-500/20 bg-slate-950/30 p-3 pr-2">
+                        {activosFiltrados.length > 0 ? (
+                            activosFiltrados.map((activo) => (
+                                <TarjetaActivo key={activo.id} activo={activo} />
+                            ))
                         ) : (
-                            <div className="col-span-3 text-center py-12">
-                                <div className="text-4xl mb-3 text-slate-600">🚚</div>
-                                <p className="text-slate-400 text-lg mb-1">No hay activos registrados</p>
-                                <p className="text-slate-600 text-sm mb-6">Agrega tu primer vehículo o equipo para comenzar la gestión</p>
-                                <button onClick={() => setMostrarModalAgregarActivo(true)} className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium hover:opacity-90 transition-opacity flex items-center gap-2 mx-auto">
-                                    <span>+</span><span>Agregar Primer Activo</span>
+                            <div className="flex h-full min-h-[360px] flex-col items-center justify-center rounded-3xl border border-slate-800 bg-slate-950/40 py-14 text-center">
+                                <div className="mb-3 text-4xl text-slate-600">🚚</div>
+
+                                <p className="mb-1 text-lg font-bold text-slate-400">
+                                    No hay activos registrados
+                                </p>
+
+                                <p className="mb-6 text-sm text-slate-600">
+                                    Agrega tu primer vehículo o equipo para comenzar la gestión
+                                </p>
+
+                                <button
+                                    onClick={() => {
+                                        setErrorAgregarActivo(null);
+                                        setMostrarModalAgregarActivo(true);
+                                    }}
+                                    className="mx-auto flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 font-medium text-white transition-opacity hover:opacity-90"
+                                >
+                                    <span>+</span>
+                                    <span>Agregar Primer Activo</span>
                                 </button>
                             </div>
                         )}
@@ -4206,25 +5136,121 @@ export default function DashboardCompleto() {
                 </div>
             </div>
         );
+
     };
 
-    /** Órdenes de Trabajo - Vista Kanban / Lista / Taller */
+    /** Órdenes de Trabajo - Vista Kanban / Lista / Taller / PDF */
     const ÓrdenesTrabajo = () => {
         type VistaOrdenesTrabajo = 'kanban' | 'lista' | 'taller';
+        type RolOperativoOT = 'dueno' | 'administrador' | 'soporte' | 'tecnico' | 'sin_rol';
+        type EstadoOT = OrdenTrabajo['estado'];
+
+        interface FormNuevaOrdenTrabajo {
+            descripcion: string;
+            tipo: string;
+            prioridad: OrdenTrabajo['prioridad'];
+            activoId: string;
+            activoManual: string;
+            asignadoA: string;
+            fechaLimite: string;
+            costoEstimado: string;
+            observaciones: string;
+            origenTrabajo: 'plan' | 'externa';
+        }
+
+        const fechaLimiteDefault = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            .toISOString()
+            .slice(0, 10);
 
         const [vistaOrdenesTrabajo, setVistaOrdenesTrabajo] = useState<VistaOrdenesTrabajo>('kanban');
+        const [modalNuevaOTAbierto, setModalNuevaOTAbierto] = useState(false);
+        const [modalDetalleOT, setModalDetalleOT] = useState<OrdenTrabajo | null>(null);
+        const [guardandoOT, setGuardandoOT] = useState(false);
+        const [actualizandoEstadoOT, setActualizandoEstadoOT] = useState<string | null>(null);
+
+        const [formNuevaOT, setFormNuevaOT] = useState<FormNuevaOrdenTrabajo>({
+            descripcion: '',
+            tipo: 'Preventivo',
+            prioridad: 'media',
+            activoId: '',
+            activoManual: '',
+            asignadoA: '',
+            fechaLimite: fechaLimiteDefault,
+            costoEstimado: '',
+            observaciones: '',
+            origenTrabajo: 'externa',
+        });
 
         if (!empresaActual) {
             return (
-                <div className="min-h-[60vh] flex items-center justify-center">
-                    <div className="text-center max-w-md rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-8 backdrop-blur-lg">
-                        <div className="text-5xl mb-4 text-slate-600">🏢</div>
-                        <h3 className="text-2xl font-bold text-white mb-2">No hay empresa asignada</h3>
-                        <p className="text-slate-400 mb-6">Contacta al administrador.</p>
+                <div className="flex min-h-[60vh] items-center justify-center">
+                    <div className="max-w-md rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-8 text-center shadow-2xl shadow-cyan-500/10 backdrop-blur-lg">
+                        <div className="mb-4 text-5xl text-slate-600">🏢</div>
+                        <h3 className="mb-2 text-2xl font-black text-white">
+                            No hay empresa asignada
+                        </h3>
+                        <p className="text-slate-400">
+                            Contacta al administrador o selecciona una empresa válida.
+                        </p>
                     </div>
                 </div>
             );
         }
+
+        const normalizarTextoOT = (valor?: string | null) => {
+            return (valor || '')
+                .trim()
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+        };
+
+        const obtenerRolOperativoOT = (): RolOperativoOT => {
+            if (esAdminGlobal) return 'dueno';
+
+            const rol = normalizarTextoOT(
+                datosUsuario?.rol_empresa ||
+                datosUsuario?.rol
+            );
+
+            if (rol === 'administrador' || rol === 'dueno' || rol === 'owner') return 'administrador';
+            if (rol === 'soporte') return 'soporte';
+            if (rol === 'tecnico') return 'tecnico';
+
+            return 'sin_rol';
+        };
+
+        const rolOperativoOT = obtenerRolOperativoOT();
+
+        const permisosOT = {
+            puedeVerTodas: rolOperativoOT !== 'tecnico',
+            puedeCrear: ['dueno', 'administrador', 'soporte'].includes(rolOperativoOT),
+            puedeAsignar: ['dueno', 'administrador', 'soporte'].includes(rolOperativoOT),
+            puedeCancelar: ['dueno', 'administrador'].includes(rolOperativoOT),
+            puedeCambiarEstado: ['dueno', 'administrador', 'soporte'].includes(rolOperativoOT),
+            puedeVerCostos: ['dueno', 'administrador', 'soporte'].includes(rolOperativoOT),
+            puedeImprimir: ['dueno', 'administrador', 'soporte', 'tecnico'].includes(rolOperativoOT),
+            puedeBorrar: rolOperativoOT === 'dueno',
+        };
+
+        const ordenAsignadaAlUsuario = (orden: OrdenTrabajo) => {
+            const asignado = normalizarTextoOT(orden.asignadoA);
+            const nombre = normalizarTextoOT(datosUsuario?.nombre);
+            const email = normalizarTextoOT(datosUsuario?.email);
+            const usuarioCorreo = email.split('@')[0];
+
+            if (!asignado) return false;
+
+            return (
+                asignado.includes(nombre) ||
+                asignado.includes(email) ||
+                asignado.includes(usuarioCorreo)
+            );
+        };
+
+        const ordenesVisibles = permisosOT.puedeVerTodas
+            ? órdenesTrabajo
+            : órdenesTrabajo.filter((orden) => ordenAsignadaAlUsuario(orden));
 
         const obtenerDiasRestantes = (fecha: Date) => {
             const fechaLimite = fecha instanceof Date ? fecha : new Date(fecha);
@@ -4235,32 +5261,33 @@ export default function DashboardCompleto() {
         const obtenerColorPrioridad = (prioridad: string) => {
             switch (prioridad) {
                 case 'alta':
-                    return 'bg-red-500/20 text-red-400 border-red-500/30';
+                    return 'bg-red-500/20 text-red-300 border-red-500/30';
                 case 'media':
-                    return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+                    return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
                 case 'baja':
-                    return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+                    return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
                 default:
-                    return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+                    return 'bg-slate-500/20 text-slate-300 border-slate-500/30';
             }
         };
 
         const obtenerIconoTipo = (tipo: string) => {
-            const tipoNormalizado = tipo?.toLowerCase() || '';
+            const tipoNormalizado = normalizarTextoOT(tipo);
 
             if (tipoNormalizado.includes('preventivo')) return '🛡️';
             if (tipoNormalizado.includes('correctivo')) return '🔧';
             if (tipoNormalizado.includes('predictivo')) return '📡';
-            if (tipoNormalizado.includes('inspección') || tipoNormalizado.includes('inspeccion')) return '🔍';
+            if (tipoNormalizado.includes('inspeccion')) return '🔍';
+            if (tipoNormalizado.includes('emergencia')) return '🚨';
 
             return '🛠️';
         };
 
         const obtenerColorPlazo = (diasRestantes: number) => {
-            if (diasRestantes < 0) return 'text-red-400';
-            if (diasRestantes <= 2) return 'text-orange-400';
-            if (diasRestantes <= 5) return 'text-amber-400';
-            return 'text-emerald-400';
+            if (diasRestantes < 0) return 'text-red-300';
+            if (diasRestantes <= 2) return 'text-orange-300';
+            if (diasRestantes <= 5) return 'text-amber-300';
+            return 'text-emerald-300';
         };
 
         const obtenerTextoPlazo = (diasRestantes: number) => {
@@ -4268,6 +5295,1075 @@ export default function DashboardCompleto() {
             if (diasRestantes === 0) return '⏰ Hoy';
             if (diasRestantes === 1) return '1 día';
             return `${diasRestantes} días`;
+        };
+
+        const obtenerActivoSeleccionadoFormulario = () => {
+            if (!formNuevaOT.activoId || formNuevaOT.activoId === 'manual') {
+                return null;
+            }
+
+            return activos.find((activo) => activo.id === formNuevaOT.activoId) || null;
+        };
+
+        const obtenerActivoTextoFormulario = () => {
+            if (formNuevaOT.activoId === 'manual') {
+                return formNuevaOT.activoManual.trim();
+            }
+
+            const activoSeleccionado = obtenerActivoSeleccionadoFormulario();
+
+            if (activoSeleccionado) {
+                return `${activoSeleccionado.patente || 'Sin patente'} · ${activoSeleccionado.marca} ${activoSeleccionado.modelo}`;
+            }
+
+            return formNuevaOT.activoManual.trim();
+        };
+
+        const activoSeleccionadoFormulario = obtenerActivoSeleccionadoFormulario();
+
+        const planIdActivoFormulario =
+            activoSeleccionadoFormulario
+                ? (activoSeleccionadoFormulario as any).plan_mantenimiento_id || null
+                : null;
+
+        const tienePlanActivoFormulario = Boolean(planIdActivoFormulario);
+
+        const abrirModalNuevaOT = () => {
+            if (!permisosOT.puedeCrear) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Sin permiso para crear OT',
+                    'Tu rol actual no permite crear órdenes de trabajo.',
+                    'Los técnicos solo pueden trabajar sobre órdenes asignadas.'
+                );
+                return;
+            }
+
+            setFormNuevaOT({
+                descripcion: '',
+                tipo: 'Preventivo',
+                prioridad: 'media',
+                activoId: activos[0]?.id || 'manual',
+                activoManual: '',
+                asignadoA: '',
+                fechaLimite: fechaLimiteDefault,
+                costoEstimado: '',
+                observaciones: '',
+                origenTrabajo: 'externa',
+            });
+
+            setModalNuevaOTAbierto(true);
+        };
+        const mostrarToastOTCreada = (orden: OrdenTrabajo) => {
+            const toastAnterior = document.getElementById('fleetvision-toast-ot-creada');
+            if (toastAnterior) {
+                toastAnterior.remove();
+            }
+
+            const toast = document.createElement('div');
+            toast.id = 'fleetvision-toast-ot-creada';
+
+            toast.style.position = 'fixed';
+            toast.style.top = '24px';
+            toast.style.right = '24px';
+            toast.style.zIndex = '999999';
+            toast.style.width = '420px';
+            toast.style.maxWidth = 'calc(100vw - 32px)';
+            toast.style.padding = '22px';
+            toast.style.borderRadius = '24px';
+            toast.style.border = '1px solid rgba(52, 211, 153, 0.35)';
+            toast.style.background = 'linear-gradient(135deg, rgba(6, 78, 59, 0.96), rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.96))';
+            toast.style.boxShadow = '0 24px 80px rgba(16, 185, 129, 0.25)';
+            toast.style.color = 'white';
+            toast.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            toast.style.backdropFilter = 'blur(16px)';
+            toast.style.transform = 'translateY(-12px)';
+            toast.style.opacity = '0';
+            toast.style.transition = 'all 250ms ease';
+
+            toast.innerHTML = `
+        <div style="display:flex; gap:14px; align-items:flex-start;">
+            <div style="
+                width:48px;
+                height:48px;
+                border-radius:16px;
+                background:rgba(16,185,129,0.22);
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                font-size:28px;
+                flex-shrink:0;
+            ">
+                ✅
+            </div>
+
+            <div style="flex:1;">
+                <div style="font-size:15px; font-weight:900; color:#a7f3d0; letter-spacing:0.02em;">
+                    OT creada correctamente
+                </div>
+
+                <div style="margin-top:4px; font-size:18px; font-weight:900; color:#ffffff;">
+                    ${orden.número}
+                </div>
+
+                <div style="margin-top:10px; font-size:13px; line-height:1.6; color:#d1fae5;">
+                    La orden fue registrada exitosamente en FleetVision y ya quedó asociada a la empresa actual.
+                </div>
+
+                <div style="
+                    margin-top:14px;
+                    padding:12px;
+                    border-radius:16px;
+                    background:rgba(15,23,42,0.55);
+                    border:1px solid rgba(148,163,184,0.16);
+                    font-size:12px;
+                    line-height:1.7;
+                    color:#cbd5e1;
+                ">
+                    <strong style="color:#ffffff;">Activo:</strong> ${orden.activo}<br/>
+                    <strong style="color:#ffffff;">Tipo:</strong> ${orden.tipo}<br/>
+                    <strong style="color:#ffffff;">Prioridad:</strong> ${orden.prioridad.toUpperCase()}<br/>
+                    <strong style="color:#ffffff;">Responsable:</strong> ${orden.asignadoA}
+                </div>
+            </div>
+
+            <button
+                id="fleetvision-toast-cerrar"
+                style="
+                    border:0;
+                    background:rgba(15,23,42,0.7);
+                    color:#cbd5e1;
+                    width:30px;
+                    height:30px;
+                    border-radius:999px;
+                    cursor:pointer;
+                    font-size:18px;
+                    line-height:30px;
+                "
+            >
+                ×
+            </button>
+        </div>
+    `;
+
+            document.body.appendChild(toast);
+
+            const botonCerrar = document.getElementById('fleetvision-toast-cerrar');
+            botonCerrar?.addEventListener('click', () => toast.remove());
+
+            setTimeout(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateY(0)';
+            }, 50);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-12px)';
+
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 6500);
+        };
+        const crearOrdenTrabajoDesdeFormulario = async () => {
+            if (!empresaActual) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Empresa no seleccionada',
+                    'No hay una empresa activa para crear la OT.',
+                    'Selecciona una empresa e intenta nuevamente.'
+                );
+                alert('Empresa no seleccionada');
+                return;
+            }
+
+            if (!permisosOT.puedeCrear) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Sin permiso',
+                    'Tu rol actual no permite crear órdenes de trabajo.',
+                    'Solicita apoyo a un administrador o soporte.'
+                );
+                alert('Tu rol actual no permite crear órdenes de trabajo.');
+                return;
+            }
+
+            const descripcion = formNuevaOT.descripcion.trim();
+            const activoTexto = obtenerActivoTextoFormulario();
+            const responsable = formNuevaOT.asignadoA.trim() || 'Sin asignar';
+            const costoEstimado = Number(formNuevaOT.costoEstimado || 0);
+
+            if (!descripcion) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Falta la descripción',
+                    'Debes indicar qué trabajo se realizará.',
+                    'Ejemplo: Cambio de aceite motor, revisión sistema hidráulico, diagnóstico eléctrico.'
+                );
+                alert('Falta la descripción de la OT.');
+                return;
+            }
+
+            if (!activoTexto) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Falta el activo',
+                    'Debes seleccionar o escribir el activo asociado a la OT.',
+                    'Una orden de trabajo debe quedar asociada a un vehículo, equipo o activo.'
+                );
+                alert('Falta seleccionar o escribir el activo.');
+                return;
+            }
+
+            if (!formNuevaOT.fechaLimite) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Falta fecha límite',
+                    'Debes seleccionar una fecha límite para la OT.',
+                    'Esto permite controlar vencimientos y alertas.'
+                );
+                alert('Falta fecha límite.');
+                return;
+            }
+
+            if (Number.isNaN(costoEstimado) || costoEstimado < 0) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Costo inválido',
+                    'El costo estimado debe ser un número válido mayor o igual a 0.',
+                    'Puedes dejarlo en 0 si aún no tienes una estimación.'
+                );
+                alert('Costo estimado inválido.');
+                return;
+            }
+
+            const estadoInicial: EstadoOT =
+                responsable && responsable !== 'Sin asignar'
+                    ? 'asignada'
+                    : 'creada';
+
+            const activoSeleccionadoId =
+                formNuevaOT.activoId && formNuevaOT.activoId !== 'manual'
+                    ? formNuevaOT.activoId
+                    : null;
+
+            try {
+                setGuardandoOT(true);
+
+                const fechaCreacion = new Date();
+                const fechaLimite = new Date(`${formNuevaOT.fechaLimite}T23:59:59`);
+
+                const nuevaOrdenData = {
+                    activo_id: activoSeleccionadoId,
+                    fecha_creacion: fechaCreacion.toISOString(),
+                    kilometraje_programado: null,
+                    descripcion,
+                    estado: estadoInicial,
+                    tipo: formNuevaOT.tipo,
+                    prioridad: formNuevaOT.prioridad,
+                    plan_id: null,
+                    empresa_id: empresaActual.id,
+                    numero_ot: null,
+                    fecha_limite: fechaLimite.toISOString(),
+                    fecha_ejecucion: null,
+                    asignado_a: responsable,
+                    costo_estimado: costoEstimado,
+                    costo_real: null,
+                    observaciones: formNuevaOT.observaciones.trim() || null,
+                    updated_at: new Date().toISOString(),
+                };
+
+                console.log('Payload OT enviado a Supabase:', nuevaOrdenData);
+
+                if (empresaModoDemo) {
+                    const demoId =
+                        typeof crypto !== 'undefined' && crypto.randomUUID
+                            ? crypto.randomUUID()
+                            : `demo-${Date.now()}`;
+
+                    const nuevaOrdenDemo: OrdenTrabajo = {
+                        id: demoId,
+                        número: `DEMO-${demoId.substring(0, 8).toUpperCase()}`,
+                        descripción: descripcion,
+                        estado: estadoInicial,
+                        prioridad: formNuevaOT.prioridad,
+                        fechaCreación: fechaCreacion,
+                        fechaLímite: fechaLimite,
+                        asignadoA: responsable,
+                        tipo: formNuevaOT.tipo,
+                        activo: activoTexto,
+                        costoEstimado: costoEstimado,
+                        costoReal: 0,
+                        empresa_id: empresaActual.id,
+                    };
+
+                    setÓrdenesTrabajo((prev) => [nuevaOrdenDemo, ...prev]);
+                    setModalNuevaOTAbierto(false);
+
+                    setFormNuevaOT({
+                        descripcion: '',
+                        tipo: 'Preventivo',
+                        prioridad: 'media',
+                        activoId: '',
+                        activoManual: '',
+                        asignadoA: '',
+                        fechaLimite: fechaLimiteDefault,
+                        costoEstimado: '',
+                        observaciones: '',
+                        origenTrabajo: 'externa',
+                    });
+
+                    mostrarToastOTCreada(nuevaOrdenDemo);
+
+
+
+                    return;
+                }
+
+                const { data: otCreada, error } = await supabase.rpc(
+                    'fv_crear_ot_con_numero',
+                    {
+                        p_empresa_id: empresaActual.id,
+                        p_activo_id: activoSeleccionadoId,
+                        p_descripcion: descripcion,
+                        p_estado: estadoInicial,
+                        p_tipo: formNuevaOT.tipo,
+                        p_prioridad: formNuevaOT.prioridad,
+                        p_fecha_limite: fechaLimite.toISOString(),
+                        p_asignado_a: responsable,
+                        p_costo_estimado: costoEstimado,
+                        p_observaciones: formNuevaOT.observaciones.trim() || null,
+                    }
+                );
+
+                if (error) {
+                    const detalleError =
+                        `Mensaje: ${error.message || 'sin mensaje'}\n` +
+                        `Código: ${error.code || 'sin código'}\n` +
+                        `Detalle: ${error.details || 'sin detalle'}\n` +
+                        `Hint: ${error.hint || 'sin hint'}`;
+
+                    console.log('Error Supabase creando OT:', {
+                        message: error.message,
+                        code: error.code,
+                        details: error.details,
+                        hint: error.hint,
+                    });
+
+                    mostrarModalSistema(
+                        'error',
+                        'No se pudo crear la OT',
+                        error.message || 'Supabase rechazó la creación de la orden.',
+                        detalleError
+                    );
+
+
+
+                    return;
+                }
+
+                if (!otCreada) {
+                    mostrarModalSistema(
+                        'error',
+                        'No se pudo crear la OT',
+                        'Supabase no devolvió la orden creada.',
+                        'La consulta no entregó error, pero tampoco devolvió datos.'
+                    );
+
+                    alert('Supabase no devolvió la orden creada.');
+
+                    return;
+                }
+
+                console.log('OT creada correctamente:', otCreada);
+
+                const nuevaOrden: OrdenTrabajo = {
+                    id: otCreada.id,
+                    número:
+                        otCreada.numero_ot ||
+                        `OT-${otCreada.id.substring(0, 8).toUpperCase()}`,
+                    descripción: otCreada.descripcion || descripcion,
+                    estado: (otCreada.estado || estadoInicial) as OrdenTrabajo['estado'],
+                    prioridad: (otCreada.prioridad || formNuevaOT.prioridad) as OrdenTrabajo['prioridad'],
+                    fechaCreación: new Date(otCreada.fecha_creacion || fechaCreacion),
+                    fechaLímite: new Date(otCreada.fecha_limite || fechaLimite),
+                    asignadoA: otCreada.asignado_a || responsable,
+                    tipo: otCreada.tipo || formNuevaOT.tipo,
+                    activo: activoTexto,
+                    costoEstimado: Number(otCreada.costo_estimado || costoEstimado || 0),
+                    costoReal: Number(otCreada.costo_real || 0),
+                    empresa_id: otCreada.empresa_id || empresaActual.id,
+                };
+
+                setÓrdenesTrabajo((prev) => [nuevaOrden, ...prev]);
+                setModalNuevaOTAbierto(false);
+
+                // ✅ Ya mostramos la confirmación con el toast propio de Órdenes de Trabajo.
+                // No usamos modalSistema aquí para evitar que aparezca el cuadro al centro.
+                mostrarToastOTCreada(nuevaOrden);
+
+
+            } catch (error: any) {
+                const detalleError =
+                    `Mensaje: ${error?.message || 'sin mensaje'}\n` +
+                    `Código: ${error?.code || 'sin código'}\n` +
+                    `Detalle: ${error?.details || 'sin detalle'}\n` +
+                    `Hint: ${error?.hint || 'sin hint'}`;
+
+                console.log('Error inesperado creando OT:', {
+                    message: error?.message,
+                    code: error?.code,
+                    details: error?.details,
+                    hint: error?.hint,
+                    raw: error,
+                });
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo crear la OT',
+                    error?.message || 'Ocurrió un error inesperado creando la orden.',
+                    detalleError
+                );
+
+
+            } finally {
+                setGuardandoOT(false);
+            }
+        };
+
+        const actualizarEstadoOrdenTrabajo = async (orden: OrdenTrabajo, nuevoEstado: EstadoOT) => {
+            if (!empresaActual) return;
+
+            if (!permisosOT.puedeCambiarEstado) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Sin permiso',
+                    'Tu rol no permite cambiar estados de órdenes de trabajo.',
+                    'Solicita apoyo a un administrador.'
+                );
+                return;
+            }
+
+            if (rolOperativoOT === 'tecnico' && !ordenAsignadaAlUsuario(orden)) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'OT no asignada',
+                    'Como técnico solo puedes modificar órdenes asignadas a ti.',
+                    'Solicita que te asignen la OT desde administración o soporte.'
+                );
+                return;
+            }
+
+            try {
+                setActualizandoEstadoOT(orden.id);
+
+                if (empresaModoDemo) {
+                    setÓrdenesTrabajo((prev) =>
+                        prev.map((item) =>
+                            item.id === orden.id
+                                ? { ...item, estado: nuevoEstado }
+                                : item
+                        )
+                    );
+
+                    setÓrdenesTrabajo((prev) =>
+                        prev.filter((item) => item.id !== orden.id)
+                    );
+
+                    setOrdenParaEliminar(null);
+
+
+
+                    mostrarAccionDemo(
+                        'Estado actualizado en demo',
+                        `La OT cambió visualmente a ${obtenerTextoEstado(nuevoEstado)}.`
+                    );
+
+                    return;
+                }
+
+                const { data: otActualizada, error } = await supabase
+                    .from('ordenes_trabajo')
+                    .update({
+                        estado: nuevoEstado,
+                        updated_at: new Date().toISOString(),
+                        fecha_ejecucion:
+                            nuevoEstado === 'completada'
+                                ? new Date().toISOString()
+                                : orden.estado === 'completada'
+                                    ? null
+                                    : undefined,
+                    })
+                    .eq('id', orden.id)
+                    .eq('empresa_id', empresaActual.id)
+                    .select('id, estado')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                if (!otActualizada || otActualizada.estado !== nuevoEstado) {
+                    throw new Error(
+                        'Supabase no confirmó el cambio de estado. Revisa la política RLS de UPDATE para ordenes_trabajo.'
+                    );
+                }
+
+                setÓrdenesTrabajo((prev) =>
+                    prev.map((item) =>
+                        item.id === orden.id
+                            ? { ...item, estado: nuevoEstado }
+                            : item
+                    )
+                );
+
+                setModalDetalleOT((prev) =>
+                    prev && prev.id === orden.id
+                        ? { ...prev, estado: nuevoEstado }
+                        : prev
+                );
+
+                setTimeout(() => {
+                    mostrarModalSistema(
+                        'exito',
+                        '✅ Estado de OT actualizado',
+                        `La orden ${orden.número} ahora está en estado ${obtenerTextoEstado(nuevoEstado)}.`,
+                        `OT: ${orden.número}\n` +
+                        `Activo: ${orden.activo}\n` +
+                        `Nuevo estado: ${obtenerTextoEstado(nuevoEstado)}\n\n` +
+                        `El cambio quedó guardado correctamente en Supabase.`
+                    );
+                }, 250);
+            } catch (error: any) {
+                const detalleError =
+                    `Mensaje: ${error?.message || 'sin mensaje'}\n` +
+                    `Código: ${error?.code || 'sin código'}\n` +
+                    `Detalle: ${error?.details || 'sin detalle'}\n` +
+                    `Hint: ${error?.hint || 'sin hint'}`;
+
+                console.log('Error actualizando estado OT:', {
+                    message: error?.message,
+                    code: error?.code,
+                    details: error?.details,
+                    hint: error?.hint,
+                    raw: error,
+                });
+
+                mostrarModalSistema(
+                    'error',
+                    'No se pudo actualizar el estado',
+                    error?.message || 'Supabase rechazó la actualización.',
+                    detalleError
+                );
+            } finally {
+                setActualizandoEstadoOT(null);
+            }
+        };
+        const eliminarOrdenTrabajo = (orden: OrdenTrabajo) => {
+            if (!empresaActual) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Empresa no seleccionada',
+                    'No hay una empresa activa para borrar esta OT.',
+                    'Selecciona una empresa e intenta nuevamente.'
+                );
+                return;
+            }
+
+            if (!permisosOT.puedeBorrar) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Acción restringida',
+                    'Solo la cuenta Dueño FleetVision puede eliminar órdenes de trabajo.',
+                    'Administradores, soporte y técnicos no pueden borrar OT definitivamente.'
+                );
+                return;
+            }
+
+            setOrdenParaEliminar(orden);
+        };
+
+        const confirmarEliminarOrdenTrabajo = async () => {
+            if (!ordenParaEliminar) {
+                alert('No hay OT seleccionada para eliminar.');
+                return;
+            }
+
+            if (!empresaActual) {
+                alert('No hay empresa seleccionada.');
+                return;
+            }
+
+            const orden = ordenParaEliminar;
+
+            try {
+                setEliminandoOTId(orden.id);
+
+                console.log('Intentando eliminar OT:', {
+                    id: orden.id,
+                    numero: orden.número,
+                    empresa_id: empresaActual.id,
+                });
+
+                const { error } = await supabase
+                    .from('ordenes_trabajo')
+                    .delete()
+                    .eq('id', orden.id)
+                    .eq('empresa_id', empresaActual.id);
+
+                if (error) {
+                    console.log('Error eliminando OT:', {
+                        message: error.message,
+                        code: error.code,
+                        details: error.details,
+                        hint: error.hint,
+                    });
+
+                    alert(
+                        `No se pudo eliminar la OT:\n\n` +
+                        `Mensaje: ${error.message || 'sin mensaje'}\n` +
+                        `Código: ${error.code || 'sin código'}\n` +
+                        `Detalle: ${error.details || 'sin detalle'}\n` +
+                        `Hint: ${error.hint || 'sin hint'}`
+                    );
+
+                    return;
+                }
+
+                setÓrdenesTrabajo((prev) =>
+                    prev.filter((item) => item.id !== orden.id)
+                );
+
+                setModalDetalleOT((prev) =>
+                    prev && prev.id === orden.id ? null : prev
+                );
+
+                setOrdenParaEliminar(null);
+
+
+            } catch (error: any) {
+                console.log('Error inesperado eliminando OT:', error);
+
+                alert(
+                    `Error inesperado eliminando OT:\n\n` +
+                    `Mensaje: ${error?.message || 'sin mensaje'}\n` +
+                    `Código: ${error?.code || 'sin código'}\n` +
+                    `Detalle: ${error?.details || 'sin detalle'}\n` +
+                    `Hint: ${error?.hint || 'sin hint'}`
+                );
+            } finally {
+                setEliminandoOTId(null);
+            }
+        };
+        const escaparHtml = (valor: any) => {
+            const entidades: Record<string, string> = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;',
+            };
+
+            return String(valor ?? '').replace(/[&<>"']/g, (caracter) => entidades[caracter] || caracter);
+        };
+
+        const imprimirOrdenTrabajo = (orden: OrdenTrabajo) => {
+            const ventana = window.open('', '_blank', 'width=1100,height=850');
+
+            if (!ventana) {
+                mostrarModalSistema(
+                    'advertencia',
+                    'Ventana bloqueada',
+                    'El navegador bloqueó la ventana de impresión.',
+                    'Permite ventanas emergentes para FleetVision e intenta nuevamente.'
+                );
+                return;
+            }
+
+            const diasRestantes = obtenerDiasRestantes(orden.fechaLímite);
+            const fechaImpresion = new Date();
+
+            const htmlDocumento = `
+            <!doctype html>
+            <html lang="es">
+                <head>
+                    <meta charset="utf-8" />
+                    <title>${escaparHtml(orden.número)} - Orden de Trabajo</title>
+                    <style>
+                        * {
+                            box-sizing: border-box;
+                        }
+
+                        body {
+                            margin: 0;
+                            padding: 32px;
+                            color: #111827;
+                            background: #f3f4f6;
+                            font-family: Arial, Helvetica, sans-serif;
+                        }
+
+                        .documento {
+                            max-width: 960px;
+                            margin: 0 auto;
+                            background: white;
+                            border: 1px solid #d1d5db;
+                            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.15);
+                        }
+
+                        .header {
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 24px;
+                            padding: 28px 32px;
+                            color: white;
+                            background: linear-gradient(135deg, #020617, #0f172a, #0e7490);
+                        }
+
+                        .brand {
+                            display: flex;
+                            gap: 14px;
+                            align-items: center;
+                        }
+
+                        .logo {
+                            width: 54px;
+                            height: 54px;
+                            border-radius: 16px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-weight: 900;
+                            font-size: 24px;
+                            background: linear-gradient(135deg, #06b6d4, #2563eb);
+                        }
+
+                        .brand h1 {
+                            margin: 0;
+                            font-size: 28px;
+                            letter-spacing: -0.03em;
+                        }
+
+                        .brand p {
+                            margin: 4px 0 0;
+                            color: #bae6fd;
+                            font-size: 12px;
+                            text-transform: uppercase;
+                            letter-spacing: 0.12em;
+                        }
+
+                        .folio {
+                            text-align: right;
+                        }
+
+                        .folio p {
+                            margin: 0;
+                            font-size: 11px;
+                            color: #cbd5e1;
+                            text-transform: uppercase;
+                            letter-spacing: 0.1em;
+                        }
+
+                        .folio h2 {
+                            margin: 6px 0 0;
+                            font-size: 26px;
+                        }
+
+                        .contenido {
+                            padding: 30px 32px;
+                        }
+
+                        .titulo {
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 24px;
+                            align-items: flex-start;
+                            border-bottom: 2px solid #e5e7eb;
+                            padding-bottom: 18px;
+                            margin-bottom: 22px;
+                        }
+
+                        .titulo h3 {
+                            margin: 0;
+                            font-size: 22px;
+                            color: #111827;
+                        }
+
+                        .titulo p {
+                            margin: 8px 0 0;
+                            color: #4b5563;
+                            line-height: 1.45;
+                        }
+
+                        .badge {
+                            display: inline-block;
+                            border-radius: 999px;
+                            border: 1px solid #cbd5e1;
+                            padding: 7px 12px;
+                            font-size: 12px;
+                            font-weight: 800;
+                            background: #f8fafc;
+                            color: #0f172a;
+                            white-space: nowrap;
+                        }
+
+                        .grid {
+                            display: grid;
+                            grid-template-columns: repeat(3, 1fr);
+                            gap: 14px;
+                            margin-bottom: 22px;
+                        }
+
+                        .box {
+                            border: 1px solid #e5e7eb;
+                            border-radius: 14px;
+                            padding: 14px;
+                            background: #f9fafb;
+                        }
+
+                        .box small {
+                            display: block;
+                            color: #6b7280;
+                            text-transform: uppercase;
+                            font-size: 10px;
+                            font-weight: 800;
+                            letter-spacing: 0.08em;
+                            margin-bottom: 6px;
+                        }
+
+                        .box strong {
+                            display: block;
+                            color: #111827;
+                            font-size: 14px;
+                            line-height: 1.35;
+                        }
+
+                        .seccion {
+                            margin-top: 24px;
+                        }
+
+                        .seccion h4 {
+                            margin: 0 0 10px;
+                            font-size: 15px;
+                            color: #0f172a;
+                            text-transform: uppercase;
+                            letter-spacing: 0.08em;
+                        }
+
+                        .panel {
+                            border: 1px solid #e5e7eb;
+                            border-radius: 14px;
+                            padding: 16px;
+                            background: #ffffff;
+                            min-height: 86px;
+                            line-height: 1.55;
+                            color: #374151;
+                        }
+
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            margin-top: 10px;
+                            font-size: 13px;
+                        }
+
+                        th, td {
+                            border: 1px solid #e5e7eb;
+                            padding: 10px;
+                            text-align: left;
+                        }
+
+                        th {
+                            background: #f3f4f6;
+                            color: #374151;
+                            font-size: 11px;
+                            text-transform: uppercase;
+                            letter-spacing: 0.08em;
+                        }
+
+                        .firmas {
+                            display: grid;
+                            grid-template-columns: repeat(3, 1fr);
+                            gap: 18px;
+                            margin-top: 58px;
+                        }
+
+                        .firma {
+                            text-align: center;
+                            padding-top: 34px;
+                            border-top: 1px solid #111827;
+                            font-size: 12px;
+                            color: #374151;
+                        }
+
+                        .footer {
+                            padding: 16px 32px;
+                            display: flex;
+                            justify-content: space-between;
+                            color: #6b7280;
+                            font-size: 11px;
+                            border-top: 1px solid #e5e7eb;
+                            background: #f9fafb;
+                        }
+
+                        @media print {
+                            body {
+                                background: white;
+                                padding: 0;
+                            }
+
+                            .documento {
+                                box-shadow: none;
+                                border: none;
+                            }
+                        }
+                    </style>
+                </head>
+
+                <body>
+                    <main class="documento">
+                        <header class="header">
+                            <div class="brand">
+                                <div class="logo">FV</div>
+                                <div>
+                                    <h1>FleetVision</h1>
+                                    <p>Sistema de Gestión de Flotas</p>
+                                </div>
+                            </div>
+
+                            <div class="folio">
+                                <p>Orden de Trabajo</p>
+                                <h2>${escaparHtml(orden.número)}</h2>
+                            </div>
+                        </header>
+
+                        <section class="contenido">
+                            <div class="titulo">
+                                <div>
+                                    <h3>${escaparHtml(orden.descripción)}</h3>
+                                    <p>Documento operativo para control de mantenimiento, trazabilidad técnica y respaldo de ejecución.</p>
+                                </div>
+
+                                <span class="badge">${escaparHtml(obtenerTextoEstado(orden.estado))}</span>
+                            </div>
+
+                            <div class="grid">
+                                <div class="box">
+                                    <small>Empresa</small>
+                                    <strong>${escaparHtml(empresaActual.nombre)}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Fecha creación</small>
+                                    <strong>${escaparHtml(orden.fechaCreación.toLocaleDateString('es-CL'))}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Fecha límite</small>
+                                    <strong>${escaparHtml(orden.fechaLímite.toLocaleDateString('es-CL'))} · ${escaparHtml(obtenerTextoPlazo(diasRestantes))}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Activo</small>
+                                    <strong>${escaparHtml(orden.activo)}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Tipo de mantenimiento</small>
+                                    <strong>${escaparHtml(orden.tipo)}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Prioridad</small>
+                                    <strong>${escaparHtml(orden.prioridad.toUpperCase())}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Responsable</small>
+                                    <strong>${escaparHtml(orden.asignadoA)}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Costo estimado</small>
+                                    <strong>$${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}</strong>
+                                </div>
+
+                                <div class="box">
+                                    <small>Costo real</small>
+                                    <strong>$${Number(orden.costoReal || 0).toLocaleString('es-CL')}</strong>
+                                </div>
+                            </div>
+
+                            <div class="seccion">
+                                <h4>Descripción del trabajo</h4>
+                                <div class="panel">
+                                    ${escaparHtml(orden.descripción)}
+                                </div>
+                            </div>
+
+                            <div class="seccion">
+                                <h4>Checklist de ejecución</h4>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 50px;">OK</th>
+                                            <th>Actividad</th>
+                                            <th>Observación</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td></td>
+                                            <td>Inspección inicial del activo</td>
+                                            <td></td>
+                                        </tr>
+                                        <tr>
+                                            <td></td>
+                                            <td>Ejecución de trabajo principal</td>
+                                            <td></td>
+                                        </tr>
+                                        <tr>
+                                            <td></td>
+                                            <td>Prueba operacional / verificación</td>
+                                            <td></td>
+                                        </tr>
+                                        <tr>
+                                            <td></td>
+                                            <td>Limpieza y entrega del equipo</td>
+                                            <td></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="seccion">
+                                <h4>Observaciones técnicas</h4>
+                                <div class="panel"></div>
+                            </div>
+
+                            <div class="firmas">
+                                <div class="firma">Firma Técnico</div>
+                                <div class="firma">Firma Supervisor</div>
+                                <div class="firma">Firma Cliente / Operación</div>
+                            </div>
+                        </section>
+
+                        <footer class="footer">
+                            <span>Generado por FleetVision</span>
+                            <span>${escaparHtml(fechaImpresion.toLocaleString('es-CL'))}</span>
+                        </footer>
+                    </main>
+                </body>
+            </html>
+        `;
+
+            ventana.document.open();
+            ventana.document.write(htmlDocumento);
+            ventana.document.close();
+            ventana.focus();
+
+            setTimeout(() => {
+                ventana.print();
+            }, 500);
         };
 
         const vistasOrdenes: {
@@ -4339,36 +6435,44 @@ export default function DashboardCompleto() {
             },
         ];
 
-        const totalOrdenes = órdenesTrabajo.length;
+        const totalOrdenes = ordenesVisibles.length;
 
-        const ordenesVencidas = órdenesTrabajo.filter((orden) => {
+        const ordenesVencidas = ordenesVisibles.filter((orden) => {
             const dias = obtenerDiasRestantes(orden.fechaLímite);
             return dias < 0 && orden.estado !== 'completada' && orden.estado !== 'cancelada';
         }).length;
 
-        const ordenesPendientes = órdenesTrabajo.filter((orden) => orden.estado === 'creada').length;
-        const ordenesAsignadas = órdenesTrabajo.filter((orden) => orden.estado === 'asignada').length;
-        const ordenesEnProgreso = órdenesTrabajo.filter((orden) => orden.estado === 'en_progreso').length;
-        const ordenesCompletadas = órdenesTrabajo.filter((orden) => orden.estado === 'completada').length;
+        const ordenesPendientes = ordenesVisibles.filter((orden) => orden.estado === 'creada').length;
+        const ordenesAsignadas = ordenesVisibles.filter((orden) => orden.estado === 'asignada').length;
+        const ordenesEnProgreso = ordenesVisibles.filter((orden) => orden.estado === 'en_progreso').length;
+        const ordenesCompletadas = ordenesVisibles.filter((orden) => orden.estado === 'completada').length;
 
-        const costoEstimadoTotal = órdenesTrabajo.reduce(
+        const costoEstimadoTotal = ordenesVisibles.reduce(
             (total, orden) => total + Number(orden.costoEstimado || 0),
             0
         );
 
-        const porcentajeAvance = totalOrdenes > 0
-            ? Math.round((ordenesCompletadas / totalOrdenes) * 100)
-            : 0;
+        const porcentajeAvance =
+            totalOrdenes > 0
+                ? Math.round((ordenesCompletadas / totalOrdenes) * 100)
+                : 0;
+
+        const inputNuevaOT =
+            'w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm font-bold text-white outline-none transition-all placeholder:text-slate-600 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/10';
+
+        const labelNuevaOT =
+            'mb-2 block text-[11px] font-black uppercase tracking-[0.18em] text-slate-400';
 
         const renderSelectorVista = () => (
             <div className="flex items-center gap-2 rounded-2xl border border-cyan-500/20 bg-slate-950/70 p-2 shadow-inner shadow-cyan-500/5">
                 {vistasOrdenes.map((vista) => (
                     <button
                         key={vista.id}
+                        type="button"
                         onClick={() => setVistaOrdenesTrabajo(vista.id)}
                         title={vista.descripcion}
                         className={`group flex items-center gap-2 rounded-xl px-3 py-2 transition-all duration-300 ${vistaOrdenesTrabajo === vista.id
-                            ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/30 scale-[1.03]'
+                            ? 'scale-[1.03] bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/30'
                             : 'text-slate-400 hover:bg-white/10 hover:text-white'
                             }`}
                     >
@@ -4381,6 +6485,98 @@ export default function DashboardCompleto() {
             </div>
         );
 
+        const renderBotonesAccionOrden = (orden: OrdenTrabajo) => {
+            const estaBloqueada = actualizandoEstadoOT === orden.id;
+            const puedeModificar =
+                permisosOT.puedeCambiarEstado &&
+                (permisosOT.puedeVerTodas || ordenAsignadaAlUsuario(orden));
+
+            const acciones: {
+                estado: EstadoOT;
+                texto: string;
+                icono: string;
+                clase: string;
+                visible: boolean;
+            }[] = [
+                    {
+                        estado: 'asignada',
+                        texto: 'Asignar',
+                        icono: '👷',
+                        clase: 'border-orange-500/30 bg-orange-500/10 text-orange-300 hover:bg-orange-500/20',
+                        visible: orden.estado === 'creada' && permisosOT.puedeAsignar,
+                    },
+                    {
+                        estado: 'en_progreso',
+                        texto: 'Iniciar',
+                        icono: '🔧',
+                        clase: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20',
+                        visible: orden.estado === 'asignada' && puedeModificar,
+                    },
+                    {
+                        estado: 'completada',
+                        texto: 'Completar',
+                        icono: '✅',
+                        clase: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20',
+                        visible: orden.estado === 'en_progreso' && puedeModificar,
+                    },
+                    {
+                        estado: 'cancelada',
+                        texto: 'Cancelar',
+                        icono: '🚫',
+                        clase: 'border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20',
+                        visible:
+                            permisosOT.puedeCancelar &&
+                            orden.estado !== 'cancelada' &&
+                            orden.estado !== 'completada',
+                    },
+                ];
+
+            return (
+                <div className="mt-4 flex flex-wrap gap-2 border-t border-white/10 pt-3">
+                    <button
+                        type="button"
+                        onClick={() => setModalDetalleOT(orden)}
+                        className="rounded-xl border border-slate-600 bg-slate-900/70 px-3 py-2 text-xs font-black text-slate-300 transition-all hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-300"
+                    >
+                        👁️ Ver
+                    </button>
+
+                    {permisosOT.puedeImprimir && (
+                        <button
+                            type="button"
+                            onClick={() => imprimirOrdenTrabajo(orden)}
+                            className="rounded-xl border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs font-black text-purple-300 transition-all hover:bg-purple-500/20"
+                        >
+                            🖨️ PDF
+                        </button>
+                    )}
+                    {permisosOT.puedeBorrar && (
+                        <button
+                            type="button"
+                            disabled={estaBloqueada}
+                            onClick={() => eliminarOrdenTrabajo(orden)}
+                            className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-black text-red-300 transition-all hover:bg-red-500/20 disabled:cursor-wait disabled:opacity-60"
+                        >
+                            🗑️ Eliminar
+                        </button>
+                    )}
+                    {acciones
+                        .filter((accion) => accion.visible)
+                        .map((accion) => (
+                            <button
+                                key={`${orden.id}-${accion.estado}`}
+                                type="button"
+                                disabled={estaBloqueada}
+                                onClick={() => actualizarEstadoOrdenTrabajo(orden, accion.estado)}
+                                className={`rounded-xl border px-3 py-2 text-xs font-black transition-all disabled:cursor-wait disabled:opacity-60 ${accion.clase}`}
+                            >
+                                {accion.icono} {estaBloqueada ? 'Guardando...' : accion.texto}
+                            </button>
+                        ))}
+                </div>
+            );
+        };
+
         const renderTarjetaKanban = (orden: OrdenTrabajo) => {
             const diasRestantes = obtenerDiasRestantes(orden.fechaLímite);
 
@@ -4389,35 +6585,36 @@ export default function DashboardCompleto() {
                     key={orden.id}
                     className="group rounded-2xl border border-white/10 bg-slate-950/70 p-4 shadow-lg shadow-black/20 transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/40 hover:bg-slate-900/90"
                 >
-                    <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="mb-3 flex items-start justify-between gap-3">
                         <div>
                             <p className="font-mono text-xs font-bold text-cyan-400">
                                 {orden.número}
                             </p>
-                            <h5 className="mt-1 text-sm font-bold text-white">
+
+                            <h5 className="mt-1 line-clamp-2 text-sm font-bold text-white">
                                 {orden.descripción}
                             </h5>
                         </div>
 
-                        <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-bold ${obtenerColorPrioridad(orden.prioridad)}`}>
+                        <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-black ${obtenerColorPrioridad(orden.prioridad)}`}>
                             {orden.prioridad.toUpperCase()}
                         </span>
                     </div>
 
                     <div className="mb-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                        <div className="flex items-center justify-between text-xs mb-2">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-xs">
                             <span className="text-slate-400">🚛 Activo</span>
-                            <span className="text-white font-medium">{orden.activo}</span>
+                            <span className="text-right font-medium text-white">{orden.activo}</span>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs mb-2">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-xs">
                             <span className="text-slate-400">👤 Asignado</span>
-                            <span className="text-white">{orden.asignadoA}</span>
+                            <span className="text-right text-white">{orden.asignadoA}</span>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs">
+                        <div className="flex items-center justify-between gap-3 text-xs">
                             <span className="text-slate-400">{obtenerIconoTipo(orden.tipo)} Tipo</span>
-                            <span className="text-cyan-300">{orden.tipo}</span>
+                            <span className="text-right text-cyan-300">{orden.tipo}</span>
                         </div>
                     </div>
 
@@ -4430,15 +6627,19 @@ export default function DashboardCompleto() {
                         </div>
 
                         <div className="text-right">
-                            <p className={`text-xs font-bold ${obtenerColorPlazo(diasRestantes)}`}>
+                            <p className={`text-xs font-black ${obtenerColorPlazo(diasRestantes)}`}>
                                 {obtenerTextoPlazo(diasRestantes)}
                             </p>
 
-                            <p className="text-[11px] text-slate-500">
-                                ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
-                            </p>
+                            {permisosOT.puedeVerCostos && (
+                                <p className="text-[11px] text-slate-500">
+                                    ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
+                                </p>
+                            )}
                         </div>
                     </div>
+
+                    {renderBotonesAccionOrden(orden)}
                 </div>
             );
         };
@@ -4447,14 +6648,14 @@ export default function DashboardCompleto() {
             <>
                 <div className="grid grid-cols-1 gap-5 xl:grid-cols-4">
                     {columnasKanban.map((columna) => {
-                        const ordenesColumna = órdenesTrabajo.filter(
+                        const ordenesColumna = ordenesVisibles.filter(
                             (orden) => orden.estado === columna.id
                         );
 
                         return (
                             <div
                                 key={columna.id}
-                                className={`min-h-[620px] rounded-3xl border ${columna.borde} bg-gradient-to-br ${columna.color} p-4 backdrop-blur-xl shadow-xl shadow-black/20`}
+                                className={`min-h-[620px] rounded-3xl border ${columna.borde} bg-gradient-to-br ${columna.color} p-4 shadow-xl shadow-black/20 backdrop-blur-xl`}
                             >
                                 <div className={`mb-4 rounded-2xl border ${columna.borde} ${columna.fondoHeader} p-4`}>
                                     <div className="flex items-center justify-between">
@@ -4462,10 +6663,12 @@ export default function DashboardCompleto() {
                                             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-950/40 text-2xl">
                                                 {columna.icono}
                                             </div>
+
                                             <div>
                                                 <h4 className={`text-lg font-black ${columna.texto}`}>
                                                     {columna.titulo}
                                                 </h4>
+
                                                 <p className="text-xs text-slate-400">
                                                     {columna.subtitulo}
                                                 </p>
@@ -4478,16 +6681,34 @@ export default function DashboardCompleto() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-4">
+                                <div
+                                    className="kanban-scroll max-h-[520px] space-y-4 overflow-y-auto pr-2 [scrollbar-color:var(--kanban-scrollbar)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:!bg-transparent [&::-webkit-scrollbar-thumb]:!rounded-full [&::-webkit-scrollbar-thumb]:!bg-[var(--kanban-scrollbar)]"
+                                    style={
+                                        {
+                                            '--kanban-scrollbar':
+                                                columna.id === 'creada'
+                                                    ? 'rgba(236, 72, 153, 0.75)'
+                                                    : columna.id === 'asignada'
+                                                        ? 'rgba(249, 115, 22, 0.75)'
+                                                        : columna.id === 'en_progreso'
+                                                            ? 'rgba(34, 211, 238, 0.75)'
+                                                            : 'rgba(16, 185, 129, 0.75)',
+                                        } as CSSProperties
+                                    }
+                                >
                                     {ordenesColumna.length > 0 ? (
                                         ordenesColumna.map((orden) => renderTarjetaKanban(orden))
                                     ) : (
                                         <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-dashed border-white/10 bg-slate-950/30 p-6 text-center">
                                             <div>
-                                                <div className="mb-3 text-4xl opacity-50">{columna.icono}</div>
+                                                <div className="mb-3 text-4xl opacity-50">
+                                                    {columna.icono}
+                                                </div>
+
                                                 <p className="text-sm font-medium text-slate-400">
                                                     Sin órdenes
                                                 </p>
+
                                                 <p className="mt-1 text-xs text-slate-500">
                                                     No hay OT en esta etapa.
                                                 </p>
@@ -4500,12 +6721,14 @@ export default function DashboardCompleto() {
                     })}
                 </div>
 
-                {órdenesTrabajo.some((orden) => orden.estado === 'cancelada') && (
+                {ordenesVisibles.some((orden) => orden.estado === 'cancelada') && (
                     <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-5 backdrop-blur-lg">
-                        <h4 className="mb-4 text-lg font-bold text-red-300">🚫 Órdenes Canceladas</h4>
+                        <h4 className="mb-4 text-lg font-black text-red-300">
+                            🚫 Órdenes Canceladas
+                        </h4>
 
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                            {órdenesTrabajo
+                            {ordenesVisibles
                                 .filter((orden) => orden.estado === 'cancelada')
                                 .map((orden) => (
                                     <div
@@ -4515,12 +6738,16 @@ export default function DashboardCompleto() {
                                         <p className="font-mono text-xs font-bold text-red-400">
                                             {orden.número}
                                         </p>
+
                                         <p className="mt-1 text-sm font-bold text-white">
                                             {orden.descripción}
                                         </p>
+
                                         <p className="mt-2 text-xs text-slate-400">
                                             🚛 {orden.activo}
                                         </p>
+
+                                        {renderBotonesAccionOrden(orden)}
                                     </div>
                                 ))}
                         </div>
@@ -4530,10 +6757,13 @@ export default function DashboardCompleto() {
         );
 
         const renderVistaLista = () => (
-            <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
+            <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 shadow-xl shadow-black/20 backdrop-blur-lg">
                 <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <h4 className="text-xl font-black text-white">📋 Vista Técnica de OT</h4>
+                        <h4 className="text-xl font-black text-white">
+                            📋 Vista Técnica de OT
+                        </h4>
+
                         <p className="text-sm text-slate-400">
                             Listado ordenado para control administrativo, mantenimiento y seguimiento operacional.
                         </p>
@@ -4543,15 +6773,16 @@ export default function DashboardCompleto() {
                         <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-sm font-bold text-cyan-300">
                             Total: {totalOrdenes}
                         </span>
+
                         <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-300">
                             Avance: {porcentajeAvance}%
                         </span>
                     </div>
                 </div>
 
-                {órdenesTrabajo.length > 0 ? (
+                {ordenesVisibles.length > 0 ? (
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[1000px]">
+                        <table className="w-full min-w-[1100px]">
                             <thead>
                                 <tr className="border-b border-white/10">
                                     <th className="px-4 py-3 text-left text-xs text-slate-400">N° OT</th>
@@ -4562,26 +6793,33 @@ export default function DashboardCompleto() {
                                     <th className="px-4 py-3 text-left text-xs text-slate-400">Prioridad</th>
                                     <th className="px-4 py-3 text-left text-xs text-slate-400">Responsable</th>
                                     <th className="px-4 py-3 text-left text-xs text-slate-400">Vence</th>
-                                    <th className="px-4 py-3 text-right text-xs text-slate-400">Costo Est.</th>
+                                    {permisosOT.puedeVerCostos && (
+                                        <th className="px-4 py-3 text-right text-xs text-slate-400">Costo Est.</th>
+                                    )}
+                                    <th className="px-4 py-3 text-right text-xs text-slate-400">Acciones</th>
                                 </tr>
                             </thead>
 
                             <tbody>
-                                {órdenesTrabajo.map((orden) => {
+                                {ordenesVisibles.map((orden) => {
                                     const diasRestantes = obtenerDiasRestantes(orden.fechaLímite);
 
                                     return (
-                                        <tr key={orden.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                        <tr
+                                            key={orden.id}
+                                            className="border-b border-white/5 transition-colors hover:bg-white/5"
+                                        >
                                             <td className="px-4 py-4">
                                                 <div className="font-mono text-sm font-bold text-cyan-400">
                                                     {orden.número}
                                                 </div>
+
                                                 <div className="text-xs text-slate-500">
                                                     {orden.fechaCreación.toLocaleDateString('es-CL')}
                                                 </div>
                                             </td>
 
-                                            <td className="px-4 py-4 text-sm font-medium text-white">
+                                            <td className="max-w-[280px] px-4 py-4 text-sm font-medium text-white">
                                                 {orden.descripción}
                                             </td>
 
@@ -4613,13 +6851,28 @@ export default function DashboardCompleto() {
                                                 <div className="text-sm text-white">
                                                     {orden.fechaLímite.toLocaleDateString('es-CL')}
                                                 </div>
-                                                <div className={`text-xs font-bold ${obtenerColorPlazo(diasRestantes)}`}>
+
+                                                <div className={`text-xs font-black ${obtenerColorPlazo(diasRestantes)}`}>
                                                     {obtenerTextoPlazo(diasRestantes)}
                                                 </div>
                                             </td>
 
-                                            <td className="px-4 py-4 text-right text-sm font-bold text-white">
-                                                ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
+                                            {permisosOT.puedeVerCostos && (
+                                                <td className="px-4 py-4 text-right text-sm font-bold text-white">
+                                                    ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
+                                                </td>
+                                            )}
+
+                                            <td className="px-4 py-4">
+                                                <div className="flex justify-end">
+                                                    <button
+                                                        type="button"
+
+                                                        className="w-full whitespace-nowrap rounded-xl border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-xs font-black text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                                                    >
+                                                        Gestionar
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     );
@@ -4638,10 +6891,13 @@ export default function DashboardCompleto() {
 
         const renderVistaTaller = () => (
             <div className="space-y-6">
-                <div className="rounded-3xl border border-amber-500/20 bg-gradient-to-br from-slate-900/90 via-slate-950/90 to-amber-950/20 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
+                <div className="rounded-3xl border border-amber-500/20 bg-gradient-to-br from-slate-900/90 via-slate-950/90 to-amber-950/20 p-6 shadow-xl shadow-black/20 backdrop-blur-lg">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                            <h4 className="text-2xl font-black text-white">🧰 Vista Taller / Maquinaria Pesada</h4>
+                            <h4 className="text-2xl font-black text-white">
+                                🧰 Vista Taller / Maquinaria Pesada
+                            </h4>
+
                             <p className="text-sm text-slate-400">
                                 Pensada para mecánicos, supervisores y control de mantenimiento en terreno.
                             </p>
@@ -4671,7 +6927,7 @@ export default function DashboardCompleto() {
                     </div>
 
                     <div className="mt-5">
-                        <div className="flex items-center justify-between text-sm mb-2">
+                        <div className="mb-2 flex items-center justify-between text-sm">
                             <span className="text-slate-400">Avance operacional</span>
                             <span className="font-bold text-emerald-400">{porcentajeAvance}%</span>
                         </div>
@@ -4686,8 +6942,8 @@ export default function DashboardCompleto() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                    {órdenesTrabajo.length > 0 ? (
-                        órdenesTrabajo.map((orden) => {
+                    {ordenesVisibles.length > 0 ? (
+                        ordenesVisibles.map((orden) => {
                             const diasRestantes = obtenerDiasRestantes(orden.fechaLímite);
 
                             return (
@@ -4700,6 +6956,7 @@ export default function DashboardCompleto() {
                                             <p className="font-mono text-xs font-bold text-cyan-400">
                                                 {orden.número}
                                             </p>
+
                                             <h4 className="mt-1 text-lg font-black text-white">
                                                 {orden.descripción}
                                             </h4>
@@ -4728,12 +6985,14 @@ export default function DashboardCompleto() {
                                             <p className="text-sm font-bold text-white">👷 {orden.asignadoA}</p>
                                         </div>
 
-                                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                                            <p className="text-xs text-slate-500">Costo estimado</p>
-                                            <p className="text-sm font-bold text-emerald-400">
-                                                💰 ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
-                                            </p>
-                                        </div>
+                                        {permisosOT.puedeVerCostos && (
+                                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                                <p className="text-xs text-slate-500">Costo estimado</p>
+                                                <p className="text-sm font-bold text-emerald-400">
+                                                    💰 ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="mb-4 flex flex-wrap gap-2">
@@ -4763,40 +7022,647 @@ export default function DashboardCompleto() {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {renderBotonesAccionOrden(orden)}
                                 </div>
                             );
                         })
                     ) : (
                         <div className="col-span-full rounded-3xl border border-dashed border-slate-700 bg-slate-950/40 p-14 text-center">
                             <div className="mb-4 text-6xl opacity-50">🧰</div>
-                            <h4 className="text-xl font-black text-white mb-2">Sin órdenes para taller</h4>
+                            <h4 className="mb-2 text-xl font-black text-white">
+                                Sin órdenes para taller
+                            </h4>
+
                             <p className="text-sm text-slate-400">
                                 Cuando crees una OT, aparecerá aquí en formato operativo.
                             </p>
 
-                            <button
-                                onClick={manejarCrearNuevaOrden}
-                                className="mx-auto mt-6 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
-                            >
-                                <span className="text-xl">➕</span>
-                                <span>Crear OT</span>
-                            </button>
+                            {permisosOT.puedeCrear && (
+                                <button
+                                    type="button"
+                                    onClick={abrirModalNuevaOT}
+                                    className="mx-auto mt-6 flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
+                                >
+                                    <span className="text-xl">➕</span>
+                                    <span>Crear OT</span>
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
             </div>
         );
 
+        const renderModalNuevaOT = () => {
+            if (!modalNuevaOTAbierto) return null;
+
+            return (
+                <div
+                    className="fixed inset-y-0 right-0 z-[500] flex items-start justify-center overflow-hidden bg-black/85 p-4 backdrop-blur-sm"
+                    style={{ left: barraLateralContraída ? 96 : 300 }}
+                >
+                    <div className="my-4 flex max-h-[calc(100vh-2rem)] w-full max-w-[1380px] flex-col overflow-hidden rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/20 shadow-2xl shadow-cyan-500/10">
+                        <div className="border-b border-cyan-500/20 bg-cyan-500/10 p-6">
+                            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                                <div className="flex items-start gap-4">
+                                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-500 text-3xl shadow-lg shadow-cyan-500/30">
+                                        🛠️
+                                    </div>
+
+                                    <div>
+                                        <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+                                            Nueva Orden de Trabajo
+                                        </p>
+
+                                        <h3 className="mt-1 text-2xl font-black text-white">
+                                            Crear OT profesional
+                                        </h3>
+
+                                        <p className="mt-1 text-sm text-slate-400">
+                                            Registra una orden asociada a activo, responsable, prioridad y fecha límite.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setModalNuevaOTAbierto(false)}
+                                    className="rounded-2xl border border-slate-700 px-4 py-2 text-sm font-black text-slate-300 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="modal-nueva-ot-scroll min-h-0 flex-1 overflow-y-auto p-6">
+                            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                                <div className="space-y-5">
+                                    {/* Datos principales de la OT */}
+                                    <div className="rounded-3xl border border-cyan-500/20 bg-slate-950/40 p-5 shadow-lg shadow-cyan-500/5">
+                                        <div className="mb-5 flex items-start gap-3">
+                                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-500/30 bg-cyan-500/15 text-2xl shadow-lg shadow-cyan-500/10">
+                                                📋
+                                            </div>
+
+                                            <div>
+                                                <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                                                    Datos principales de la OT
+                                                </p>
+
+                                                <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                                                    Define el activo, tipo de trabajo, prioridad, responsable, fecha límite y costo estimado.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Seleccionar por patente / activo
+                                                </label>
+
+                                                <select
+                                                    value={formNuevaOT.activoId}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            activoId: e.target.value,
+                                                        }))
+                                                    }
+                                                    className={inputNuevaOT}
+                                                >
+                                                    <option value="manual">
+                                                        Escribir activo manualmente
+                                                    </option>
+
+                                                    {activos.length > 0 &&
+                                                        activos.map((activo) => (
+                                                            <option key={activo.id} value={activo.id}>
+                                                                {activo.patente || 'Sin patente'} · {activo.marca} {activo.modelo} · {activo.tipo}
+                                                            </option>
+                                                        ))}
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Activo manual / equipo no registrado
+                                                </label>
+
+                                                <input
+                                                    type="text"
+                                                    value={formNuevaOT.activoManual}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            activoManual: e.target.value,
+                                                        }))
+                                                    }
+                                                    disabled={formNuevaOT.activoId !== 'manual'}
+                                                    className={`${inputNuevaOT} disabled:cursor-not-allowed disabled:opacity-40`}
+                                                    placeholder="Ejemplo: CAT 990K / Camión 12"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Tipo de OT
+                                                </label>
+
+                                                <select
+                                                    value={formNuevaOT.tipo}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            tipo: e.target.value,
+                                                        }))
+                                                    }
+                                                    className={inputNuevaOT}
+                                                >
+                                                    <option value="Preventivo">🛡️ Preventivo</option>
+                                                    <option value="Correctivo">🔧 Correctivo</option>
+                                                    <option value="Predictivo">📡 Predictivo</option>
+                                                    <option value="Inspección">🔍 Inspección</option>
+                                                    <option value="Emergencia">🚨 Emergencia</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Prioridad
+                                                </label>
+
+                                                <select
+                                                    value={formNuevaOT.prioridad}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            prioridad: e.target.value as OrdenTrabajo['prioridad'],
+                                                        }))
+                                                    }
+                                                    className={inputNuevaOT}
+                                                >
+                                                    <option value="baja">Baja</option>
+                                                    <option value="media">Media</option>
+                                                    <option value="alta">Alta</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Responsable
+                                                </label>
+
+                                                <input
+                                                    type="text"
+                                                    value={formNuevaOT.asignadoA}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            asignadoA: e.target.value,
+                                                        }))
+                                                    }
+                                                    className={inputNuevaOT}
+                                                    placeholder="Ejemplo: Juan técnico / Sin asignar"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Fecha límite
+                                                </label>
+
+                                                <input
+                                                    type="date"
+                                                    value={formNuevaOT.fechaLimite}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            fechaLimite: e.target.value,
+                                                        }))
+                                                    }
+                                                    className={inputNuevaOT}
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Costo estimado
+                                                </label>
+
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    value={formNuevaOT.costoEstimado}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            costoEstimado: e.target.value,
+                                                        }))
+                                                    }
+                                                    className={inputNuevaOT}
+                                                    placeholder="0"
+                                                />
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <div className="rounded-3xl border border-blue-500/20 bg-blue-500/10 p-5">
+                                                    <div className="mb-4 flex items-start gap-3">
+                                                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blue-400/30 bg-blue-500/15 text-2xl">
+                                                            🧭
+                                                        </div>
+
+                                                        <div>
+                                                            <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-300">
+                                                                Origen de la OT
+                                                            </p>
+
+                                                            <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                                                                Define si esta orden viene desde el plan de mantenimiento del activo o si corresponde a una tarea externa.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                                        <button
+                                                            type="button"
+                                                            disabled={!tienePlanActivoFormulario}
+                                                            onClick={() =>
+                                                                setFormNuevaOT((prev) => ({
+                                                                    ...prev,
+                                                                    origenTrabajo: 'plan',
+                                                                    tipo: 'Preventivo',
+                                                                }))
+                                                            }
+                                                            className={`rounded-2xl border p-4 text-left transition-all disabled:cursor-not-allowed disabled:opacity-40 ${formNuevaOT.origenTrabajo === 'plan'
+                                                                ? 'border-emerald-400/50 bg-emerald-500/15 shadow-lg shadow-emerald-500/10'
+                                                                : 'border-slate-700 bg-slate-950/40 hover:border-emerald-400/30 hover:bg-emerald-500/10'
+                                                                }`}
+                                                        >
+                                                            <p className="text-sm font-black text-emerald-300">
+                                                                ✅ Desde plan de mantenimiento
+                                                            </p>
+
+                                                            <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                                                                Usa el plan asociado al activo seleccionado. Ideal para mantenciones preventivas programadas.
+                                                            </p>
+
+                                                            <p className="mt-3 text-xs font-bold text-slate-300">
+                                                                {tienePlanActivoFormulario
+                                                                    ? 'Este activo tiene un plan asignado.'
+                                                                    : 'Selecciona un activo con plan asignado.'}
+                                                            </p>
+                                                        </button>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setFormNuevaOT((prev) => ({
+                                                                    ...prev,
+                                                                    origenTrabajo: 'externa',
+                                                                }))
+                                                            }
+                                                            className={`rounded-2xl border p-4 text-left transition-all ${formNuevaOT.origenTrabajo === 'externa'
+                                                                ? 'border-cyan-400/50 bg-cyan-500/15 shadow-lg shadow-cyan-500/10'
+                                                                : 'border-slate-700 bg-slate-950/40 hover:border-cyan-400/30 hover:bg-cyan-500/10'
+                                                                }`}
+                                                        >
+                                                            <p className="text-sm font-black text-cyan-300">
+                                                                🛠️ Tarea externa al plan
+                                                            </p>
+
+                                                            <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                                                                Para fallas, reparaciones, inspecciones, emergencias o trabajos que no están programados.
+                                                            </p>
+
+                                                            <p className="mt-3 text-xs font-bold text-slate-300">
+                                                                Se creará sin asociarla a un plan de mantenimiento.
+                                                            </p>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Detalle técnico del trabajo */}
+                                    <div className="rounded-3xl border border-purple-500/20 bg-slate-950/40 p-5 shadow-lg shadow-purple-500/5">
+                                        <div className="mb-5 flex items-start gap-3">
+                                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-purple-500/30 bg-purple-500/15 text-2xl shadow-lg shadow-purple-500/10">
+                                                📝
+                                            </div>
+
+                                            <div>
+                                                <p className="text-xs font-black uppercase tracking-[0.22em] text-purple-300">
+                                                    Detalle técnico del trabajo
+                                                </p>
+
+                                                <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                                                    Describe qué se debe realizar y agrega observaciones internas para el equipo de mantenimiento.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Descripción del trabajo
+                                                </label>
+
+                                                <textarea
+                                                    value={formNuevaOT.descripcion}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            descripcion: e.target.value,
+                                                        }))
+                                                    }
+                                                    rows={5}
+                                                    className={`${inputNuevaOT} resize-none`}
+                                                    placeholder="Ejemplo: Cambio de aceite motor, revisión de sistema hidráulico, diagnóstico eléctrico..."
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className={labelNuevaOT}>
+                                                    Observaciones internas
+                                                </label>
+
+                                                <textarea
+                                                    value={formNuevaOT.observaciones}
+                                                    onChange={(e) =>
+                                                        setFormNuevaOT((prev) => ({
+                                                            ...prev,
+                                                            observaciones: e.target.value,
+                                                        }))
+                                                    }
+                                                    rows={4}
+                                                    className={`${inputNuevaOT} resize-none`}
+                                                    placeholder="Ejemplo: revisar fuga, validar repuesto, confirmar disponibilidad del equipo..."
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                        <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+                                            Resumen
+                                        </p>
+
+                                        <div className="mt-4 space-y-3 text-sm">
+                                            <div className="flex justify-between gap-3">
+                                                <span className="text-slate-400">Empresa</span>
+                                                <span className="text-right font-bold text-white">
+                                                    {empresaActual?.nombre || 'Empresa actual'}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between gap-3">
+                                                <span className="text-slate-400">Tipo</span>
+                                                <span className="text-right font-bold text-cyan-300">
+                                                    {obtenerIconoTipo(formNuevaOT.tipo)} {formNuevaOT.tipo}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between gap-3">
+                                                <span className="text-slate-400">Prioridad</span>
+                                                <span className={`rounded-full border px-2 py-1 text-xs font-black ${obtenerColorPrioridad(formNuevaOT.prioridad)}`}>
+                                                    {formNuevaOT.prioridad.toUpperCase()}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between gap-3">
+                                                <span className="text-slate-400">Activo</span>
+                                                <span className="max-w-[180px] text-right font-bold text-white">
+                                                    {obtenerActivoTextoFormulario() || 'Pendiente'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-3xl border border-amber-500/20 bg-amber-500/10 p-5">
+                                        <p className="text-sm font-black text-amber-300">
+                                            ⚠️ Importante
+                                        </p>
+
+                                        <p className="mt-2 text-xs leading-relaxed text-amber-100/70">
+                                            Si asignas responsable, la OT se creará como Asignada. Si queda sin responsable, se creará como Pendiente.
+                                        </p>
+                                    </div>
+
+                                    {empresaModoDemo && (
+                                        <div className="rounded-3xl border border-purple-500/20 bg-purple-500/10 p-5">
+                                            <p className="text-sm font-black text-purple-300">
+                                                🧪 Modo Demo
+                                            </p>
+
+                                            <p className="mt-2 text-xs leading-relaxed text-purple-100/70">
+                                                La OT se mostrará en pantalla, pero no quedará guardada en Supabase.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 border-t border-white/10 bg-slate-950/70 p-6 sm:flex-row sm:justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setModalNuevaOTAbierto(false)}
+                                className="rounded-2xl border border-slate-700 px-5 py-3 text-sm font-black text-slate-300 transition-all hover:border-slate-500 hover:bg-slate-800"
+                            >
+                                Cancelar
+                            </button>
+
+                            <button
+                                type="button"
+                                disabled={guardandoOT}
+                                onClick={crearOrdenTrabajoDesdeFormulario}
+                                className="rounded-2xl border border-cyan-400/30 bg-gradient-to-r from-cyan-500 to-blue-500 px-6 py-3 text-sm font-black text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.02] disabled:cursor-wait disabled:opacity-60"
+                            >
+                                {guardandoOT ? 'Creando OT...' : 'Crear Orden de Trabajo'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const renderModalDetalleOT = () => {
+            if (!modalDetalleOT) return null;
+
+            const orden = modalDetalleOT;
+            const diasRestantes = obtenerDiasRestantes(orden.fechaLímite);
+
+            return (
+                <div
+                    className={`fixed inset-y-0 right-0 z-[500] flex items-start justify-center overflow-hidden bg-black/85 p-4 backdrop-blur-sm ${barraLateralContraída ? 'left-[96px]' : 'left-[300px]'
+                        }`}
+                >
+                    <div className="my-6 w-full max-w-5xl overflow-hidden rounded-3xl border border-cyan-500/30 bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950/20 shadow-2xl shadow-cyan-500/10">
+                        <div className="border-b border-cyan-500/20 bg-cyan-500/10 p-6">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                    <p className="font-mono text-sm font-black text-cyan-300">
+                                        {orden.número}
+                                    </p>
+
+                                    <h3 className="mt-1 text-2xl font-black text-white">
+                                        {orden.descripción}
+                                    </h3>
+
+                                    <p className="mt-2 text-sm text-slate-400">
+                                        Orden de trabajo asociada a {orden.activo}
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => imprimirOrdenTrabajo(orden)}
+                                        className="rounded-2xl border border-purple-500/30 bg-purple-500/10 px-4 py-3 text-sm font-black text-purple-300 transition-all hover:bg-purple-500/20"
+                                    >
+                                        🖨️ Imprimir / PDF
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setModalDetalleOT(null)}
+                                        className="rounded-2xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-300 transition-all hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+                                    >
+                                        Cerrar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="modal-nueva-ot-scroll grid max-h-[calc(100vh-240px)] grid-cols-1 gap-6 overflow-y-auto p-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                            <div className="space-y-5 lg:col-span-2">
+                                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                                    <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                                        Información principal
+                                    </p>
+
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                        <div>
+                                            <p className="text-xs text-slate-500">Activo</p>
+                                            <p className="mt-1 font-bold text-white">🚛 {orden.activo}</p>
+                                        </div>
+
+                                        <div>
+                                            <p className="text-xs text-slate-500">Responsable</p>
+                                            <p className="mt-1 font-bold text-white">👤 {orden.asignadoA}</p>
+                                        </div>
+
+                                        <div>
+                                            <p className="text-xs text-slate-500">Tipo</p>
+                                            <p className="mt-1 font-bold text-cyan-300">
+                                                {obtenerIconoTipo(orden.tipo)} {orden.tipo}
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <p className="text-xs text-slate-500">Prioridad</p>
+                                            <span className={`mt-1 inline-flex rounded-full border px-3 py-1 text-xs font-black ${obtenerColorPrioridad(orden.prioridad)}`}>
+                                                {orden.prioridad.toUpperCase()}
+                                            </span>
+                                        </div>
+
+                                        <div>
+                                            <p className="text-xs text-slate-500">Fecha creación</p>
+                                            <p className="mt-1 font-bold text-white">
+                                                {orden.fechaCreación.toLocaleDateString('es-CL')}
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <p className="text-xs text-slate-500">Fecha límite</p>
+                                            <p className="mt-1 font-bold text-white">
+                                                {orden.fechaLímite.toLocaleDateString('es-CL')}
+                                            </p>
+                                            <p className={`text-xs font-black ${obtenerColorPlazo(diasRestantes)}`}>
+                                                {obtenerTextoPlazo(diasRestantes)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                                    <p className="mb-3 text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                                        Descripción técnica
+                                    </p>
+
+                                    <p className="text-sm leading-relaxed text-slate-300">
+                                        {orden.descripción}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-5">
+                                <div className="rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-5">
+                                    <p className="text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+                                        Estado actual
+                                    </p>
+
+                                    <span className={`mt-4 inline-flex rounded-full border px-4 py-2 text-sm font-black ${obtenerColorEstado(orden.estado)}`}>
+                                        {obtenerTextoEstado(orden.estado)}
+                                    </span>
+
+                                    {renderBotonesAccionOrden(orden)}
+                                </div>
+
+                                {permisosOT.puedeVerCostos && (
+                                    <div className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                                        <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">
+                                            Costos
+                                        </p>
+
+                                        <div className="mt-4 space-y-3">
+                                            <div className="flex justify-between">
+                                                <span className="text-sm text-slate-400">Estimado</span>
+                                                <span className="font-black text-emerald-300">
+                                                    ${Number(orden.costoEstimado || 0).toLocaleString('es-CL')}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex justify-between">
+                                                <span className="text-sm text-slate-400">Real</span>
+                                                <span className="font-black text-white">
+                                                    ${Number(orden.costoReal || 0).toLocaleString('es-CL')}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="rounded-3xl border border-purple-500/20 bg-purple-500/10 p-5">
+                                    <p className="text-sm font-black text-purple-300">
+                                        📄 Documento listo
+                                    </p>
+
+                                    <p className="mt-2 text-xs leading-relaxed text-purple-100/70">
+                                        Puedes imprimir esta OT o guardarla como PDF desde el navegador.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div className="space-y-6">
                 {/* ENCABEZADO */}
-                <div className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/95 via-slate-950/95 to-blue-950/50 p-6 backdrop-blur-lg shadow-xl shadow-cyan-500/10">
+                <div className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/95 via-slate-950/95 to-blue-950/50 p-6 shadow-xl shadow-cyan-500/10 backdrop-blur-lg">
                     <div className="absolute -right-20 -top-20 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
-                    <div className="absolute -left-20 -bottom-20 h-56 w-56 rounded-full bg-blue-500/10 blur-3xl" />
+                    <div className="absolute -bottom-20 -left-20 h-56 w-56 rounded-full bg-blue-500/10 blur-3xl" />
 
                     <div className="relative z-10 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                            <div className="flex items-center gap-3 mb-2">
+                            <div className="mb-2 flex items-center gap-3">
                                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-3xl shadow-lg shadow-cyan-500/30">
                                     {vistaOrdenesTrabajo === 'kanban' && '🧩'}
                                     {vistaOrdenesTrabajo === 'lista' && '📋'}
@@ -4804,7 +7670,7 @@ export default function DashboardCompleto() {
                                 </div>
 
                                 <div>
-                                    <h3 className="text-3xl font-black text-white tracking-tight">
+                                    <h3 className="text-3xl font-black tracking-tight text-white">
                                         {vistaOrdenesTrabajo === 'kanban' && 'Kanban de Órdenes de Trabajo'}
                                         {vistaOrdenesTrabajo === 'lista' && 'Lista Técnica de Órdenes'}
                                         {vistaOrdenesTrabajo === 'taller' && 'Taller de Mantenimiento'}
@@ -4817,9 +7683,17 @@ export default function DashboardCompleto() {
                             </div>
 
                             <p className="max-w-3xl text-sm text-slate-400">
-                                Organiza tus OT por estado, responsable, activo y prioridad. Diseñado para
-                                operación de flotas, mantenimiento preventivo/correctivo y control técnico.
+                                Organiza tus OT por estado, responsable, activo y prioridad. Diseñado para operación de flotas,
+                                mantenimiento preventivo/correctivo, trazabilidad técnica y respaldo documental.
                             </p>
+
+                            {rolOperativoOT === 'tecnico' && (
+                                <div className="mt-4 rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3">
+                                    <p className="text-xs font-bold text-blue-300">
+                                        🔧 Vista Técnico: solo estás viendo órdenes asignadas a tu usuario.
+                                    </p>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3">
@@ -4835,30 +7709,25 @@ export default function DashboardCompleto() {
                                 <p className="text-2xl font-bold text-red-400">{ordenesVencidas}</p>
                             </div>
 
-                            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
-                                <p className="text-xs text-emerald-300">Costo Est.</p>
-                                <p className="text-lg font-bold text-emerald-400">
-                                    ${costoEstimadoTotal.toLocaleString('es-CL')}
-                                </p>
-                            </div>
+                            {permisosOT.puedeVerCostos && (
+                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+                                    <p className="text-xs text-emerald-300">Costo Est.</p>
+                                    <p className="text-lg font-bold text-emerald-400">
+                                        ${costoEstimadoTotal.toLocaleString('es-CL')}
+                                    </p>
+                                </div>
+                            )}
 
-                            <button
-                                onClick={() => {
-                                    if (empresaModoDemo) {
-                                        mostrarAccionDemo(
-                                            'Orden de trabajo simulada',
-                                            'En modo demo puedes revisar el flujo de órdenes de trabajo, pero no se guardará ninguna OT real en Supabase.'
-                                        );
-                                        return;
-                                    }
-
-                                    crearNuevaOrden();
-                                }}
-                                className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-4 text-sm font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
-                            >
-                                <span className="text-xl">➕</span>
-                                <span>Nueva OT</span>
-                            </button>
+                            {permisosOT.puedeCrear && (
+                                <button
+                                    type="button"
+                                    onClick={abrirModalNuevaOT}
+                                    className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-4 text-sm font-bold text-white shadow-lg shadow-cyan-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
+                                >
+                                    <span className="text-xl">➕</span>
+                                    <span>Nueva OT</span>
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -4867,10 +7736,12 @@ export default function DashboardCompleto() {
                 {vistaOrdenesTrabajo === 'kanban' && renderVistaKanban()}
                 {vistaOrdenesTrabajo === 'lista' && renderVistaLista()}
                 {vistaOrdenesTrabajo === 'taller' && renderVistaTaller()}
+
+                {renderModalNuevaOT()}
+                {renderModalDetalleOT()}
             </div>
         );
     };
-
     /** Plan de Mantenimiento - Vista Profesional *///////////////////////////////////////////////////////
     const PlanMantenimiento = () => {
         if (!empresaActual) {
@@ -6875,7 +9746,74 @@ export default function DashboardCompleto() {
             </div>
         </div>
     );
+    const confirmarEliminarOrdenTrabajo = async () => {
+        if (!ordenParaEliminar) {
+            mostrarModalSistema(
+                'advertencia',
+                'OT no seleccionada',
+                'No hay una orden seleccionada para eliminar.',
+                'Cierra el modal e intenta nuevamente.'
+            );
+            return;
+        }
 
+        if (!empresaActual) {
+            mostrarModalSistema(
+                'advertencia',
+                'Empresa no seleccionada',
+                'No hay una empresa activa para eliminar esta OT.',
+                'Selecciona una empresa e intenta nuevamente.'
+            );
+            return;
+        }
+
+        const orden = ordenParaEliminar;
+
+        try {
+            setEliminandoOTId(orden.id);
+
+            const { error } = await supabase
+                .from('ordenes_trabajo')
+                .delete()
+                .eq('id', orden.id)
+                .eq('empresa_id', empresaActual.id);
+
+            if (error) {
+                throw error;
+            }
+
+            setÓrdenesTrabajo((prev) =>
+                prev.filter((item) => item.id !== orden.id)
+            );
+
+            setÓrdenesTrabajo((prev) =>
+                prev.filter((item) => item.id !== orden.id)
+            );
+
+            setOrdenParaEliminar(null);
+
+
+
+            setOrdenParaEliminar(null);
+
+
+        } catch (error: any) {
+            const detalleError =
+                `Mensaje: ${error?.message || 'sin mensaje'}\n` +
+                `Código: ${error?.code || 'sin código'}\n` +
+                `Detalle: ${error?.details || 'sin detalle'}\n` +
+                `Hint: ${error?.hint || 'sin hint'}`;
+
+            mostrarModalSistema(
+                'error',
+                'No se pudo eliminar la OT',
+                error?.message || 'Supabase rechazó el borrado de la orden.',
+                detalleError
+            );
+        } finally {
+            setEliminandoOTId(null);
+        }
+    };
     /** Panel Dueño / Desarrollador */
     const PanelDesarrollador = () => {
         const modulosActivos = featuresPlan.filter((feature) => feature.habilitado).length;
@@ -9879,14 +12817,6 @@ export default function DashboardCompleto() {
                                     >
                                         ✏️ Editar usuario
                                     </button>
-                                    <button
-                                        type="button"
-                                        onClick={abrirModalBorrarUsuario}
-                                        disabled={borrandoUsuario}
-                                        className="mt-4 w-full rounded-2xl border border-red-500/30 bg-red-500/10 px-5 py-3 text-sm font-black text-red-300 transition-all hover:border-red-400/60 hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        {borrandoUsuario ? 'Revisando usuario...' : '🗑️ Borrar usuario inteligente'}
-                                    </button>
 
                                     <button
                                         type="button"
@@ -9897,6 +12827,31 @@ export default function DashboardCompleto() {
                                     </button>
                                 </div>
                             </div>
+
+                            {esAdminGlobal && (
+                                <div className="mb-4 rounded-2xl border border-red-500/25 bg-red-500/10 p-4">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <p className="text-sm font-black text-red-200">
+                                                ⚠️ Zona peligrosa
+                                            </p>
+
+                                            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                                                Borra definitivamente este usuario. El sistema revisará vínculos, empresas e historial antes de eliminarlo.
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={abrirModalBorrarUsuario}
+                                            disabled={borrandoUsuario}
+                                            className="rounded-2xl border border-red-500/40 bg-red-500/20 px-5 py-3 text-sm font-black text-red-200 shadow-lg shadow-red-500/10 transition-all hover:border-red-400/70 hover:bg-red-500/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {borrandoUsuario ? 'Revisando...' : '🗑️ Borrar definitivamente'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                                 <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -9923,6 +12878,7 @@ export default function DashboardCompleto() {
                                     </p>
                                 </div>
                             </div>
+
                             <div className="mt-6 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-5">
                                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                     <div>
@@ -9995,6 +12951,7 @@ export default function DashboardCompleto() {
                                     </button>
                                 </div>
                             </div>
+
                             <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-950/60 p-5">
                                 <h4 className="text-lg font-black text-white">
                                     🔐 Cambiar rol de empresa
@@ -11022,10 +13979,9 @@ export default function DashboardCompleto() {
                         </div>
                     </div>
                 )}
-
                 {/* Modal Sistema Bonito */}
                 {modalSistema && (
-                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                    <div className="fixed inset-0 z-[99999] flex min-h-screen items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
                         <div
                             className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl ${modalSistema.tipo === 'error'
                                 ? 'border-red-500/30 bg-gradient-to-br from-red-950/80 via-slate-950 to-slate-900 shadow-red-500/10'
@@ -11065,7 +14021,7 @@ export default function DashboardCompleto() {
                                                 Detalle
                                             </p>
 
-                                            <p className="mt-1 text-sm text-slate-400">
+                                            <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-slate-400">
                                                 {modalSistema.detalle}
                                             </p>
                                         </div>
@@ -11337,21 +14293,25 @@ export default function DashboardCompleto() {
             {/* 🔴 ZOOM CONTENIDO PRINCIPAL – se controla desde dashboard/layout.tsx */}
             {/* ============================================================= */}
             <div
-                className={`relative z-10 px-6 py-8 transition-all duration-700 ease-in-out ${barraLateralContraída ? 'pl-20' : 'pl-64'}`}
+                className={`relative z-10 transition-all duration-700 ease-in-out ${barraLateralContraída ? 'pl-20' : 'pl-64'
+                    } ${secciónActiva === 'activos' ? 'px-10 py-5' : 'px-6 py-8'
+                    }`}
                 style={{ zoom: "var(--zoom-main)" } as CSSProperties}
             >
-                <div className="max-w-7xl mx-auto">
-                    <div className="mb-8">
-                        <h1 className={`text-3xl font-bold mb-2 ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
-                            Bienvenido, <span className="text-cyan-500">{datosUsuario?.nombre || 'Usuario'}</span>
-                        </h1>
-                        <p className={`${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>
-                            {empresaActual ? `Gestión de flota para ${empresaActual.nombre}` : 'No hay empresa asignada'}
-                        </p>
-                    </div>
+                <div className={secciónActiva === 'activos' ? 'mx-auto w-full max-w-[1400px]' : 'mx-auto max-w-7xl'}>
+                    {secciónActiva === 'dashboard' && (
+                        <div className="mb-8">
+                            <h1 className={`text-3xl font-bold mb-2 ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
+                                Bienvenido, <span className="text-cyan-500">{datosUsuario?.nombre || 'Usuario'}</span>
+                            </h1>
+                            <p className={`${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>
+                                {empresaActual ? `Gestión de flota para ${empresaActual.nombre}` : 'No hay empresa asignada'}
+                            </p>
+                        </div>
+                    )}
 
                     {secciónActiva === 'dashboard' && <DashboardPrincipal />}
-                    {secciónActiva === 'activos' && <GestiónActivos />}
+                    {secciónActiva === 'activos' && GestiónActivos()}
                     {secciónActiva === 'ordenes' && <ÓrdenesTrabajo />}
                     {secciónActiva === 'mantenimiento' && <PlanMantenimiento />}
                     {secciónActiva === 'inventario' && <Inventario />}
@@ -11361,7 +14321,191 @@ export default function DashboardCompleto() {
                     {secciónActiva === 'desarrollador' && esAdminGlobal && <PanelDesarrollador />}
                 </div>
             </div>
+            {/* Modal Confirmar Eliminación OT */}
 
+            {ordenParaEliminar && (
+
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/85 p-4 backdrop-blur-md">
+
+                    <div className="w-full max-w-xl overflow-hidden rounded-3xl border border-red-500/30 bg-gradient-to-br from-red-950/70 via-slate-950 to-slate-900 shadow-2xl shadow-red-500/20">
+
+                        <div className="border-b border-red-500/20 bg-red-500/10 p-6">
+
+                            <div className="flex items-start gap-4">
+
+                                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-red-500/20 text-4xl shadow-lg shadow-red-500/20">
+
+                                    🗑️
+
+                                </div>
+
+
+
+                                <div>
+
+                                    <p className="text-xs font-black uppercase tracking-[0.22em] text-red-300">
+
+                                        Acción irreversible
+
+                                    </p>
+
+
+
+                                    <h3 className="mt-2 text-2xl font-black text-white">
+
+                                        ¿Eliminar esta orden de trabajo?
+
+                                    </h3>
+
+
+
+                                    <p className="mt-2 text-sm leading-relaxed text-slate-300">
+
+                                        Esta OT será eliminada definitivamente de FleetVision. Esta acción solo puede realizarla la cuenta Dueño.
+
+                                    </p>
+
+                                </div>
+
+                            </div>
+
+                        </div>
+
+
+
+                        <div className="space-y-4 p-6">
+
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+
+                                <div className="grid gap-3 text-sm">
+
+                                    <div className="flex items-center justify-between gap-4">
+
+                                        <span className="text-slate-400">Número OT</span>
+
+                                        <span className="font-black text-cyan-300">
+
+                                            {ordenParaEliminar.número}
+
+                                        </span>
+
+                                    </div>
+
+
+
+                                    <div className="flex items-center justify-between gap-4">
+
+                                        <span className="text-slate-400">Descripción</span>
+
+                                        <span className="max-w-[260px] truncate text-right font-bold text-white">
+
+                                            {ordenParaEliminar.descripción}
+
+                                        </span>
+
+                                    </div>
+
+
+
+                                    <div className="flex items-center justify-between gap-4">
+
+                                        <span className="text-slate-400">Activo</span>
+
+                                        <span className="max-w-[260px] truncate text-right font-bold text-white">
+
+                                            {ordenParaEliminar.activo}
+
+                                        </span>
+
+                                    </div>
+
+
+
+                                    <div className="flex items-center justify-between gap-4">
+
+                                        <span className="text-slate-400">Estado</span>
+
+                                        <span className="font-bold text-amber-300">
+
+                                            {obtenerTextoEstado(ordenParaEliminar.estado)}
+
+                                        </span>
+
+                                    </div>
+
+                                </div>
+
+                            </div>
+
+
+
+                            <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+
+                                <p className="text-sm font-bold text-amber-200">
+
+                                    ⚠️ Esta acción no se puede deshacer.
+
+                                </p>
+
+                                <p className="mt-1 text-xs text-amber-100/70">
+
+                                    Si solo quieres quitarla del flujo, usa Cancelar OT. Eliminar es para limpieza definitiva.
+
+                                </p>
+
+                            </div>
+
+
+
+                            <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+
+                                <button
+
+                                    type="button"
+
+                                    disabled={eliminandoOTId === ordenParaEliminar.id}
+
+                                    onClick={() => setOrdenParaEliminar(null)}
+
+                                    className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black text-slate-300 transition-all hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+
+                                >
+
+                                    No, conservar OT
+
+                                </button>
+
+
+
+                                <button
+
+                                    type="button"
+
+                                    disabled={eliminandoOTId === ordenParaEliminar.id}
+
+                                    onClick={confirmarEliminarOrdenTrabajo}
+
+                                    className="rounded-2xl border border-red-400/40 bg-gradient-to-r from-red-600 to-rose-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-red-500/25 transition-all hover:from-red-500 hover:to-rose-500 disabled:cursor-wait disabled:opacity-60"
+
+                                >
+
+                                    {eliminandoOTId === ordenParaEliminar.id
+
+                                        ? 'Eliminando OT...'
+
+                                        : 'Sí, eliminar definitivamente'}
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            )}
 
             {/* Footer */}
             <footer
