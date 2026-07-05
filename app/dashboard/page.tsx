@@ -287,6 +287,7 @@ export default function DashboardCompleto() {
     const [cargando, setCargando] = useState(true);
     const [modoOscuro, setModoOscuro] = useState(true);
     const [barraLateralContraída, setBarraLateralContraída] = useState(false);
+    const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
     const [secciónActiva, setSecciónActiva] = useState('dashboard');
 
     // -------------------- ESTADOS PARA GESTIÓN DE ACTIVOS --------
@@ -459,6 +460,8 @@ export default function DashboardCompleto() {
     const [contactosChat, setContactosChat] = useState<ChatContacto[]>([]);
     const [contactoChatSeleccionado, setContactoChatSeleccionado] = useState<ChatContacto | null>(null);
     const [cargandoContactosChat, setCargandoContactosChat] = useState(false);
+    const [chatInputEnfocado, setChatInputEnfocado] = useState(false);
+    const [chatTecladoAbierto, setChatTecladoAbierto] = useState(false);
 
     // =============================================================
     // 🟡 SECCIÓN AMARILLA – Efectos (useEffect)
@@ -674,6 +677,94 @@ export default function DashboardCompleto() {
         return () => window.clearTimeout(temporizador);
     }, [chatMensajes.length, chatAbierto]);
 
+
+    // --- Efecto para que el chat móvil se comporte como app y no se deforme con el teclado ---
+    useEffect(() => {
+        if (!chatAbierto) {
+            setChatInputEnfocado(false);
+            setChatTecladoAbierto(false);
+            return;
+        }
+
+        const root = document.documentElement;
+        const body = document.body;
+
+        const scrollY = window.scrollY || window.pageYOffset || 0;
+        const overflowAnterior = body.style.overflow;
+        const positionAnterior = body.style.position;
+        const topAnterior = body.style.top;
+        const widthAnterior = body.style.width;
+        const overscrollAnterior = body.style.overscrollBehavior;
+
+        const actualizarViewportChat = () => {
+            const visualViewport = window.visualViewport;
+            const alturaVisible = Math.round(visualViewport?.height || window.innerHeight);
+            const anchoVisible = Math.round(visualViewport?.width || window.innerWidth);
+            const offsetTop = Math.round(visualViewport?.offsetTop || 0);
+            const offsetLeft = Math.round(visualViewport?.offsetLeft || 0);
+            const tecladoAbierto = alturaVisible < window.innerHeight - 120;
+
+            root.style.setProperty('--fleetvision-chat-vh', `${alturaVisible}px`);
+            root.style.setProperty('--fleetvision-chat-top', `${offsetTop}px`);
+            root.style.setProperty('--fleetvision-chat-left', `${offsetLeft}px`);
+            root.style.setProperty('--fleetvision-chat-width', `${anchoVisible}px`);
+
+            setChatTecladoAbierto(tecladoAbierto);
+
+            window.setTimeout(() => {
+                chatScrollRef.current?.scrollTo({
+                    top: chatScrollRef.current.scrollHeight,
+                    behavior: 'smooth',
+                });
+            }, 80);
+        };
+
+        actualizarViewportChat();
+
+        body.style.overflow = 'hidden';
+        body.style.position = 'fixed';
+        body.style.top = `-${scrollY}px`;
+        body.style.width = '100%';
+        body.style.overscrollBehavior = 'none';
+
+        window.addEventListener('resize', actualizarViewportChat);
+        window.visualViewport?.addEventListener('resize', actualizarViewportChat);
+        window.visualViewport?.addEventListener('scroll', actualizarViewportChat);
+
+        return () => {
+            body.style.overflow = overflowAnterior;
+            body.style.position = positionAnterior;
+            body.style.top = topAnterior;
+            body.style.width = widthAnterior;
+            body.style.overscrollBehavior = overscrollAnterior;
+
+            root.style.removeProperty('--fleetvision-chat-vh');
+            root.style.removeProperty('--fleetvision-chat-top');
+            root.style.removeProperty('--fleetvision-chat-left');
+            root.style.removeProperty('--fleetvision-chat-width');
+
+            window.removeEventListener('resize', actualizarViewportChat);
+            window.visualViewport?.removeEventListener('resize', actualizarViewportChat);
+            window.visualViewport?.removeEventListener('scroll', actualizarViewportChat);
+            window.scrollTo(0, scrollY);
+            setChatInputEnfocado(false);
+            setChatTecladoAbierto(false);
+        };
+    }, [chatAbierto]);
+
+    // --- Cuando se abre el teclado, mantener los últimos mensajes visibles ---
+    useEffect(() => {
+        if (!chatAbierto) return;
+
+        const temporizador = window.setTimeout(() => {
+            chatScrollRef.current?.scrollTo({
+                top: chatScrollRef.current.scrollHeight,
+                behavior: 'smooth',
+            });
+        }, 180);
+
+        return () => window.clearTimeout(temporizador);
+    }, [chatInputEnfocado, chatTecladoAbierto, chatAbierto]);
 
     // =============================================================
     // 🔵 SECCIÓN AZUL – Funciones de gestión de empresa
@@ -3753,7 +3844,7 @@ export default function DashboardCompleto() {
 
         return (
             <aside
-                className={`fixed left-0 top-0 h-screen bg-gradient-to-b from-[#0a0e2a] to-[#1a1b3a] border-r border-cyan-500/20 z-20 transition-all duration-500 ${barraLateralContraída ? 'w-20' : 'w-64'} shadow-xl sidebar-neon barra-lateral ${efectosHabilitados ? 'efectos-activos' : 'efectos-off'}`}
+                className={`fixed left-0 top-0 hidden h-screen bg-gradient-to-b from-[#0a0e2a] to-[#1a1b3a] border-r border-cyan-500/20 z-20 transition-all duration-500 lg:block ${barraLateralContraída ? 'w-20' : 'w-64'} shadow-xl sidebar-neon barra-lateral ${efectosHabilitados ? 'efectos-activos' : 'efectos-off'}`}
                 style={{ zoom: "var(--zoom-sidebar)" } as CSSProperties}
             >
                 {/* PARTÍCULAS */}
@@ -3885,7 +3976,7 @@ export default function DashboardCompleto() {
                                         <span className="text-cyan-400">{activos.length}/{activos.length}</span>
                                     </div>
 
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-3">
                                         <span>Tiempo Activo</span>
                                         <span className="text-emerald-400">96.1%</span>
                                     </div>
@@ -4196,7 +4287,7 @@ export default function DashboardCompleto() {
                     <div className="relative z-10 flex max-h-[92vh] flex-col">
                         {/* Header */}
                         <div className="flex items-center justify-between border-b border-cyan-500/10 bg-slate-950/40 px-6 py-5">
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-2 sm:gap-4">
                                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-blue-600 text-3xl shadow-lg shadow-cyan-500/30">
                                     🚚
                                 </div>
@@ -4429,7 +4520,7 @@ export default function DashboardCompleto() {
                                             </div>
 
                                             <div>
-                                                <p className="text-sm font-black text-white">
+                                                <p className="text-xs font-black text-white sm:text-sm">
                                                     {nuevoActivo.marca || 'Marca'} {nuevoActivo.modelo || 'Modelo'}
                                                 </p>
                                                 <p className="text-xs text-slate-400">
@@ -9864,7 +9955,7 @@ export default function DashboardCompleto() {
                                             </div>
 
                                             <div>
-                                                <p className="text-sm font-black text-white">{movimiento.repuesto}</p>
+                                                <p className="text-xs font-black text-white sm:text-sm">{movimiento.repuesto}</p>
                                                 <p className="text-xs text-slate-400">
                                                     {movimiento.tipo} · {movimiento.responsable}
                                                 </p>
@@ -12398,7 +12489,7 @@ export default function DashboardCompleto() {
                             <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
                                 <label className="flex cursor-pointer items-center justify-between gap-4">
                                     <div>
-                                        <p className="text-sm font-black text-white">
+                                        <p className="text-xs font-black text-white sm:text-sm">
                                             Empresa activa
                                         </p>
 
@@ -12815,7 +12906,7 @@ export default function DashboardCompleto() {
                             <div className="mt-5 rounded-2xl border border-slate-700 bg-slate-950/60 p-4">
                                 <label className="flex cursor-pointer items-center justify-between gap-4">
                                     <div>
-                                        <p className="text-sm font-black text-white">
+                                        <p className="text-xs font-black text-white sm:text-sm">
                                             Usuario activo
                                         </p>
 
@@ -13426,7 +13517,7 @@ export default function DashboardCompleto() {
                                                     }`}
                                             >
                                                 <div className="flex items-center justify-between gap-2">
-                                                    <p className="text-sm font-black text-white">
+                                                    <p className="text-xs font-black text-white sm:text-sm">
                                                         {iconoRol} {nombreRol}
                                                     </p>
 
@@ -14421,6 +14512,203 @@ export default function DashboardCompleto() {
     );
 
 
+    const NavegacionMovil = () => {
+        type RolMovil = 'administrador' | 'soporte' | 'tecnico' | 'sin_rol';
+
+        const normalizarRolMovil = (rol?: string | null): RolMovil => {
+            const limpio = (rol || '')
+                .trim()
+                .toLowerCase()
+                .replace('é', 'e')
+                .replace('ñ', 'n');
+
+            if (limpio === 'administrador') return 'administrador';
+            if (limpio === 'soporte') return 'soporte';
+            if (limpio === 'tecnico') return 'tecnico';
+            if (limpio === 'dueno' || limpio === 'owner') return 'administrador';
+
+            return 'sin_rol';
+        };
+
+        const rolMovilActual = esAdminGlobal
+            ? 'administrador'
+            : normalizarRolMovil(datosUsuario?.rol_empresa || datosUsuario?.rol);
+
+        const seccionesMovil = [
+            {
+                id: 'dashboard',
+                icono: '🏠',
+                etiqueta: 'Inicio',
+                rolesPermitidos: ['administrador', 'soporte', 'tecnico'] as RolMovil[],
+            },
+            {
+                id: 'activos',
+                icono: '🚚',
+                etiqueta: 'Activos',
+                rolesPermitidos: ['administrador', 'soporte', 'tecnico'] as RolMovil[],
+            },
+            {
+                id: 'ordenes',
+                icono: '📋',
+                etiqueta: 'OT',
+                rolesPermitidos: ['administrador', 'soporte', 'tecnico'] as RolMovil[],
+            },
+            {
+                id: 'mantenimiento',
+                icono: '🔧',
+                etiqueta: 'Mantención',
+                rolesPermitidos: ['administrador', 'soporte'] as RolMovil[],
+            },
+            {
+                id: 'inventario',
+                icono: '📦',
+                etiqueta: 'Inventario',
+                rolesPermitidos: ['administrador', 'soporte'] as RolMovil[],
+            },
+            {
+                id: 'personal',
+                icono: '👥',
+                etiqueta: 'Personal',
+                rolesPermitidos: ['administrador'] as RolMovil[],
+            },
+            {
+                id: 'reportes',
+                icono: '📊',
+                etiqueta: 'Reportes',
+                rolesPermitidos: ['administrador', 'soporte'] as RolMovil[],
+            },
+            {
+                id: 'configuracion',
+                icono: '⚙️',
+                etiqueta: 'Config.',
+                rolesPermitidos: ['administrador'] as RolMovil[],
+            },
+            {
+                id: 'desarrollador',
+                icono: '🛡️',
+                etiqueta: 'Dueño',
+                soloAdminGlobal: true,
+                rolesPermitidos: ['administrador'] as RolMovil[],
+            },
+        ];
+
+        const seccionesPermitidasMovil = seccionesMovil.filter((seccion) => {
+            if (esAdminGlobal) return true;
+            if (seccion.soloAdminGlobal) return false;
+            return seccion.rolesPermitidos.includes(rolMovilActual);
+        });
+
+        const irASeccionMovil = (seccionId: string) => {
+            setSecciónActiva(seccionId);
+            setMenuMovilAbierto(false);
+        };
+
+        const BotonMovil = ({
+            icono,
+            etiqueta,
+            activo,
+            onClick,
+        }: {
+            icono: string;
+            etiqueta: string;
+            activo?: boolean;
+            onClick: () => void;
+        }) => (
+            <button
+                type="button"
+                onClick={onClick}
+                className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-black transition-all ${activo
+                        ? 'border border-cyan-400/40 bg-cyan-500/15 text-cyan-200 shadow-lg shadow-cyan-500/10'
+                        : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    }`}
+            >
+                <span className="text-lg leading-none">{icono}</span>
+                <span className="max-w-full truncate leading-none">{etiqueta}</span>
+            </button>
+        );
+
+        return (
+            <>
+                {menuMovilAbierto && (
+                    <div
+                        className="fixed inset-0 z-[760] bg-black/60 backdrop-blur-sm lg:hidden"
+                        onClick={() => setMenuMovilAbierto(false)}
+                    >
+                        <div
+                            className="absolute bottom-24 left-3 right-3 overflow-hidden rounded-3xl border border-cyan-500/25 bg-slate-950/95 shadow-2xl shadow-cyan-500/20"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="border-b border-white/10 bg-cyan-500/10 px-4 py-3">
+                                <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                                    Menú FleetVision
+                                </p>
+                                <p className="mt-1 text-xs text-slate-400">
+                                    {empresaActual?.nombre || 'Empresa'} · navegación móvil
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3">
+                                {seccionesPermitidasMovil.map((seccion) => (
+                                    <button
+                                        key={seccion.id}
+                                        type="button"
+                                        onClick={() => irASeccionMovil(seccion.id)}
+                                        className={`rounded-2xl border p-3 text-left transition-all ${secciónActiva === seccion.id
+                                                ? 'border-cyan-400/50 bg-cyan-500/15 text-white'
+                                                : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-cyan-400/30 hover:bg-white/[0.07]'
+                                            }`}
+                                    >
+                                        <div className="text-xl">{seccion.icono}</div>
+                                        <div className="mt-2 text-xs font-black">{seccion.etiqueta}</div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                <nav className="fixed bottom-0 left-0 right-0 z-[800] border-t border-cyan-500/20 bg-slate-950/95 px-2 pb-3 pt-2 shadow-2xl shadow-cyan-500/10 backdrop-blur-xl lg:hidden">
+                    <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+                        <BotonMovil
+                            icono="🏠"
+                            etiqueta="Inicio"
+                            activo={secciónActiva === 'dashboard'}
+                            onClick={() => irASeccionMovil('dashboard')}
+                        />
+                        <BotonMovil
+                            icono="🚚"
+                            etiqueta="Activos"
+                            activo={secciónActiva === 'activos'}
+                            onClick={() => irASeccionMovil('activos')}
+                        />
+                        <BotonMovil
+                            icono="📋"
+                            etiqueta="OT"
+                            activo={secciónActiva === 'ordenes'}
+                            onClick={() => irASeccionMovil('ordenes')}
+                        />
+                        <BotonMovil
+                            icono="💬"
+                            etiqueta="Chat"
+                            activo={chatAbierto}
+                            onClick={() => {
+                                setChatAbierto(true);
+                                setMenuMovilAbierto(false);
+                            }}
+                        />
+                        <BotonMovil
+                            icono="☰"
+                            etiqueta="Más"
+                            activo={menuMovilAbierto}
+                            onClick={() => setMenuMovilAbierto((prev) => !prev)}
+                        />
+                    </div>
+                </nav>
+            </>
+        );
+    };
+
+
     const ChatInterno = () => {
         if (!empresaActual || !datosUsuario) return null;
 
@@ -14432,7 +14720,7 @@ export default function DashboardCompleto() {
                 <button
                     type="button"
                     onClick={() => setChatAbierto((prev) => !prev)}
-                    className="fixed bottom-20 right-6 z-[850] flex items-center gap-3 rounded-full border border-cyan-400/40 bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 px-5 py-3 text-sm font-black text-white shadow-2xl shadow-cyan-500/30 transition-all hover:scale-105 hover:shadow-cyan-400/40"
+                    className="fixed bottom-20 right-6 z-[850] hidden items-center gap-3 rounded-full border border-cyan-400/40 bg-gradient-to-r from-cyan-600 via-blue-600 to-cyan-500 px-5 py-3 text-sm font-black text-white shadow-2xl shadow-cyan-500/30 transition-all hover:scale-105 hover:shadow-cyan-400/40 lg:flex"
                     title="Abrir chat privado FleetVision"
                 >
                     <span className="text-xl">💬</span>
@@ -14440,56 +14728,67 @@ export default function DashboardCompleto() {
                 </button>
 
                 {chatAbierto && (
-                    <div className="fixed bottom-36 right-6 z-[900] flex h-[580px] w-[min(760px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-cyan-500/25 bg-slate-950/95 shadow-2xl shadow-cyan-500/20 backdrop-blur-xl">
-                        <div className="border-b border-white/10 bg-gradient-to-r from-cyan-950/80 via-slate-950 to-blue-950/80 p-4">
-                            <div className="flex items-start justify-between gap-3">
-                                <div>
-                                    <p className="text-xs font-bold uppercase tracking-[0.25em] text-cyan-300/80">
+                    <div className="fleetvision-chat-modal fixed inset-x-0 top-0 z-[1200] flex h-[var(--fleetvision-chat-vh)] w-full flex-col overflow-hidden border-0 border-cyan-500/25 bg-slate-950 text-white shadow-2xl shadow-cyan-500/20 lg:inset-auto lg:bottom-36 lg:right-6 lg:h-[600px] lg:w-[min(780px,calc(100vw-32px))] lg:rounded-3xl lg:border lg:backdrop-blur-xl">
+                        <div className="shrink-0 border-b border-white/10 bg-gradient-to-r from-cyan-950/90 via-slate-950 to-blue-950/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] lg:p-4">
+                            <div className="flex items-center gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-500/15 text-lg shadow-lg shadow-cyan-500/10 lg:h-11 lg:w-11">
+                                    💬
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.24em] text-cyan-300/80 lg:text-[10px]">
                                         FleetVision
                                     </p>
-                                    <h3 className="mt-1 text-lg font-black text-white">
+                                    <h3 className="truncate text-[17px] font-black leading-tight text-white lg:text-lg">
                                         Chat privado interno
                                     </h3>
-                                    <p className="mt-1 text-xs text-slate-400">
-                                        {empresaActual.nombre} · mensajes privados · se limpia cada 24 horas
+                                    <p className="truncate text-[11px] font-semibold text-slate-400 lg:text-xs">
+                                        {contactoSeleccionado
+                                            ? `${contactoSeleccionado.nombre} · ${contactoSeleccionado.rol || 'Sin rol'}`
+                                            : `${empresaActual.nombre} · mensajes privados`}
                                     </p>
                                 </div>
 
                                 <button
                                     type="button"
-                                    onClick={() => setChatAbierto(false)}
-                                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-black text-slate-300 transition-all hover:bg-white/10 hover:text-white"
+                                    onClick={() => { setChatAbierto(false); setChatInputEnfocado(false); setChatTecladoAbierto(false); }}
+                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-lg font-black text-slate-300 transition-all hover:bg-white/10 hover:text-white"
                                     title="Cerrar chat"
                                 >
-                                    ✕
+                                    ×
                                 </button>
                             </div>
                         </div>
 
                         {errorChat && (
-                            <div className="border-b border-red-500/20 bg-red-500/10 px-4 py-3 text-xs font-bold text-red-200">
+                            <div className="shrink-0 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-xs font-bold text-red-200">
                                 {errorChat}
                             </div>
                         )}
 
-                        <div className="flex min-h-0 flex-1">
-                            <div className="w-56 shrink-0 border-r border-white/10 bg-slate-950/80">
-                                <div className="border-b border-white/10 px-3 py-3">
-                                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
-                                        Personas
-                                    </p>
-                                    <p className="mt-1 text-xs font-bold text-cyan-300">
-                                        Misma empresa
-                                    </p>
+                        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+                            <div className={`${chatInputEnfocado || chatTecladoAbierto ? 'hidden lg:block' : 'block'} shrink-0 border-b border-white/10 bg-slate-950/90 lg:w-60 lg:border-b-0 lg:border-r lg:border-white/10`}>
+                                <div className="flex items-center justify-between px-4 py-2 lg:block lg:border-b lg:border-white/10 lg:py-3">
+                                    <div>
+                                        <p className="text-[9px] font-black uppercase tracking-[0.24em] text-slate-500 lg:text-[10px]">
+                                            Personas
+                                        </p>
+                                        <p className="text-[11px] font-bold text-cyan-300 lg:mt-1 lg:text-xs">
+                                            Misma empresa
+                                        </p>
+                                    </div>
+                                    <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-1 text-[10px] font-black text-cyan-200 lg:hidden">
+                                        {contactosChat.length}
+                                    </span>
                                 </div>
 
-                                <div className="max-h-[460px] overflow-y-auto p-2 [scrollbar-color:rgba(34,211,238,0.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-cyan-500/40">
+                                <div className="flex max-h-[68px] gap-2 overflow-x-auto overflow-y-hidden px-3 pb-2 pt-1 [scrollbar-color:rgba(34,211,238,0.45)_transparent] [scrollbar-width:thin] lg:block lg:max-h-[490px] lg:overflow-x-hidden lg:overflow-y-auto lg:p-3 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-cyan-500/40">
                                     {cargandoContactosChat ? (
-                                        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs font-bold text-slate-400">
+                                        <div className="min-w-[170px] rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs font-bold text-slate-400 lg:min-w-0">
                                             Cargando personas...
                                         </div>
                                     ) : contactosChat.length === 0 ? (
-                                        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100">
+                                        <div className="min-w-[250px] rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-100 lg:min-w-0">
                                             No hay otros usuarios activos en esta empresa para conversar.
                                         </div>
                                     ) : (
@@ -14505,17 +14804,17 @@ export default function DashboardCompleto() {
                                                         setMensajeChat('');
                                                         setErrorChat(null);
                                                     }}
-                                                    className={`mb-2 w-full rounded-2xl border p-3 text-left transition-all ${seleccionado
-                                                            ? 'border-cyan-400/50 bg-cyan-500/15 shadow-lg shadow-cyan-500/10'
+                                                    className={`min-w-[170px] rounded-2xl border px-2.5 py-2 text-left transition-all lg:mb-2 lg:min-w-0 lg:w-full ${seleccionado
+                                                            ? 'border-cyan-400/60 bg-cyan-500/15 shadow-lg shadow-cyan-500/10'
                                                             : 'border-white/10 bg-white/[0.04] hover:border-cyan-400/30 hover:bg-white/[0.07]'
                                                         }`}
                                                 >
-                                                    <div className="flex items-center gap-2">
-                                                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${seleccionado ? 'bg-cyan-500 text-white' : 'bg-slate-800 text-slate-300'}`}>
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-black ${seleccionado ? 'bg-cyan-500 text-white' : 'bg-slate-800 text-slate-300'}`}>
                                                             {contacto.nombre?.charAt(0)?.toUpperCase() || 'U'}
                                                         </div>
                                                         <div className="min-w-0">
-                                                            <p className="truncate text-xs font-black text-white">
+                                                            <p className="truncate text-xs font-black leading-tight text-white">
                                                                 {contacto.nombre || 'Usuario'}
                                                             </p>
                                                             <p className="truncate text-[10px] font-bold text-slate-500">
@@ -14530,8 +14829,8 @@ export default function DashboardCompleto() {
                                 </div>
                             </div>
 
-                            <div className="flex min-w-0 flex-1 flex-col">
-                                <div className="border-b border-white/10 bg-white/[0.03] px-4 py-3">
+                            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.10),transparent_32%),linear-gradient(180deg,rgba(2,6,23,0.92),rgba(2,6,23,1))]">
+                                <div className="hidden shrink-0 border-b border-white/10 bg-white/[0.03] px-4 py-3 lg:block">
                                     <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-500">
                                         Para
                                     </p>
@@ -14544,11 +14843,11 @@ export default function DashboardCompleto() {
 
                                 <div
                                     ref={chatScrollRef}
-                                    className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 [scrollbar-color:rgba(34,211,238,0.45)_transparent] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-cyan-500/40"
+                                    className="min-h-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto px-3 py-2 [scrollbar-color:rgba(34,211,238,0.45)_transparent] [scrollbar-width:thin] lg:space-y-3 lg:px-4 lg:py-4 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-cyan-500/40"
                                 >
                                     {!contactoSeleccionado ? (
                                         <div className="flex h-full flex-col items-center justify-center text-center">
-                                            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-500/25 bg-cyan-500/10 text-2xl">
+                                            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-500/25 bg-cyan-500/10 text-2xl">
                                                 👤
                                             </div>
                                             <p className="text-sm font-black text-white">
@@ -14564,7 +14863,7 @@ export default function DashboardCompleto() {
                                         </div>
                                     ) : chatMensajes.length === 0 ? (
                                         <div className="flex h-full flex-col items-center justify-center text-center">
-                                            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-500/25 bg-cyan-500/10 text-2xl">
+                                            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-500/25 bg-cyan-500/10 text-2xl">
                                                 💬
                                             </div>
                                             <p className="text-sm font-black text-white">
@@ -14581,32 +14880,32 @@ export default function DashboardCompleto() {
                                             return (
                                                 <div
                                                     key={mensaje.id}
-                                                    className={`flex ${esMio ? 'justify-end' : 'justify-start'}`}
+                                                    className={`flex w-full ${esMio ? 'justify-end' : 'justify-start'}`}
                                                 >
                                                     <div
-                                                        className={`max-w-[82%] rounded-2xl border px-3 py-2 shadow-lg ${esMio
-                                                                ? 'border-cyan-400/30 bg-cyan-500/15 text-cyan-50'
-                                                                : 'border-white/10 bg-white/[0.06] text-slate-100'
+                                                        className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-lg lg:max-w-[78%] ${esMio
+                                                                ? 'rounded-br-md border border-cyan-400/25 bg-cyan-600/25 text-cyan-50 shadow-cyan-500/10'
+                                                                : 'rounded-bl-md border border-white/10 bg-white/[0.075] text-slate-100 shadow-black/20'
                                                             }`}
                                                     >
-                                                        <div className="mb-1 flex items-center justify-between gap-3">
+                                                        <div className="mb-0.5 flex items-center justify-between gap-3">
                                                             <span
-                                                                className={`truncate text-[11px] font-black ${esMio ? 'text-cyan-200' : 'text-slate-300'
+                                                                className={`min-w-0 truncate text-[10px] font-black leading-none ${esMio ? 'text-cyan-100' : 'text-slate-300'
                                                                     }`}
                                                             >
                                                                 {esMio ? 'Tú' : mensaje.nombre_usuario || 'Usuario'}
                                                             </span>
-                                                            <span className="shrink-0 text-[10px] font-bold text-slate-500">
+                                                            <span className="shrink-0 text-[9px] font-bold leading-none text-slate-500">
                                                                 {formatearHoraChat(mensaje.creado_en)}
                                                             </span>
                                                         </div>
 
-                                                        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">
+                                                        <p className="whitespace-pre-wrap break-words text-[13px] leading-snug lg:text-sm">
                                                             {mensaje.mensaje}
                                                         </p>
 
                                                         {mensaje.rol_usuario && (
-                                                            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                            <p className="mt-1 text-[8px] font-bold uppercase tracking-wide text-slate-500 lg:text-[10px]">
                                                                 {mensaje.rol_usuario}
                                                             </p>
                                                         )}
@@ -14622,39 +14921,53 @@ export default function DashboardCompleto() {
                                         e.preventDefault();
                                         enviarMensajeChat();
                                     }}
-                                    className="border-t border-white/10 bg-slate-950/95 p-3"
+                                    className="fleetvision-chat-composer shrink-0 border-t border-white/10 bg-slate-950/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 lg:p-3"
                                 >
                                     <div className="flex items-end gap-2">
                                         <textarea
                                             value={mensajeChat}
                                             onChange={(e) => setMensajeChat(e.target.value)}
+                                            onFocus={() => {
+                                                setChatInputEnfocado(true);
+                                                window.setTimeout(() => {
+                                                    chatScrollRef.current?.scrollTo({
+                                                        top: chatScrollRef.current.scrollHeight,
+                                                        behavior: 'smooth',
+                                                    });
+                                                }, 250);
+                                            }}
+                                            onBlur={() => {
+                                                window.setTimeout(() => setChatInputEnfocado(false), 120);
+                                            }}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' && !e.shiftKey) {
                                                     e.preventDefault();
                                                     enviarMensajeChat();
                                                 }
                                             }}
-                                            rows={2}
+                                            rows={1}
                                             maxLength={600}
                                             disabled={!contactoSeleccionado || enviandoMensajeChat}
                                             placeholder={
                                                 contactoSeleccionado
-                                                    ? `Mensaje privado para ${contactoSeleccionado.nombre}...`
+                                                    ? 'Mensaje privado...'
                                                     : 'Selecciona una persona para escribir...'
                                             }
-                                            className="min-h-[46px] flex-1 resize-none rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm font-medium text-white outline-none transition-all placeholder:text-slate-500 focus:border-cyan-400/60 focus:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                                            className="min-h-[40px] max-h-20 flex-1 resize-none rounded-[22px] border border-white/10 bg-white/[0.07] px-4 py-2 text-[16px] font-medium leading-tight text-white outline-none transition-all placeholder:text-slate-500 focus:border-cyan-400/60 focus:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-50 lg:min-h-[46px] lg:text-sm"
                                         />
 
                                         <button
                                             type="submit"
                                             disabled={!contactoSeleccionado || !mensajeChat.trim() || enviandoMensajeChat}
-                                            className="rounded-2xl border border-cyan-400/40 bg-cyan-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-cyan-500/20 transition-all hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
+                                            className="flex h-[40px] w-[40px] shrink-0 items-center justify-center rounded-full border border-cyan-400/40 bg-cyan-500 text-base font-black text-white shadow-lg shadow-cyan-500/20 transition-all hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50 lg:h-[46px] lg:w-auto lg:px-4 lg:text-sm"
+                                            title="Enviar mensaje"
                                         >
-                                            {enviandoMensajeChat ? '...' : 'Enviar'}
+                                            <span className="lg:hidden">➤</span>
+                                            <span className="hidden lg:inline">{enviandoMensajeChat ? '...' : 'Enviar'}</span>
                                         </button>
                                     </div>
 
-                                    <div className="mt-2 flex items-center justify-between text-[10px] font-bold text-slate-500">
+                                    <div className="mt-2 hidden items-center justify-between text-[10px] font-bold text-slate-500 lg:flex">
                                         <span>Privado · Enter envía · Shift + Enter baja línea</span>
                                         <span>{mensajeChat.length}/600</span>
                                     </div>
@@ -14696,9 +15009,59 @@ export default function DashboardCompleto() {
     // =============================================================
     return (
         <main
-            className={`relative min-h-screen w-full font-sans overflow-hidden transition-colors duration-700 ease-in-out bg-slate-950 ${modoOscuro ? 'modo-oscuro' : 'modo-claro'} ${efectosHabilitados ? 'efectos-activos' : 'efectos-off'}`}
+            className={`relative min-h-screen w-full overflow-x-hidden font-sans transition-colors duration-700 ease-in-out bg-slate-950 ${modoOscuro ? 'modo-oscuro' : 'modo-claro'} ${efectosHabilitados ? 'efectos-activos' : 'efectos-off'}`}
             style={{ backgroundColor: modoOscuro ? '#0f172a' : '#f0f4f8' }}
         >
+            <style jsx global>{`
+                :root {
+                    --fleetvision-chat-vh: 100dvh;
+                    --fleetvision-chat-top: 0px;
+                    --fleetvision-chat-left: 0px;
+                    --fleetvision-chat-width: 100vw;
+                }
+
+                @media (max-width: 1023px) {
+                    .fleetvision-chat-modal {
+                        top: var(--fleetvision-chat-top) !important;
+                        left: var(--fleetvision-chat-left) !important;
+                        right: auto !important;
+                        width: var(--fleetvision-chat-width) !important;
+                        height: var(--fleetvision-chat-vh) !important;
+                        max-height: var(--fleetvision-chat-vh) !important;
+                        border-radius: 0 !important;
+                        overscroll-behavior: contain;
+                    }
+
+                    .fleetvision-chat-composer {
+                        position: sticky;
+                        bottom: 0;
+                        z-index: 5;
+                    }
+
+                    input,
+                    textarea,
+                    select {
+                        font-size: 16px !important;
+                    }
+
+                    .fleetvision-chat-composer textarea {
+                        font-size: 16px !important;
+                        line-height: 1.25 !important;
+                    }
+
+                    :root {
+                        --zoom-sidebar: 1 !important;
+                        --zoom-header: 1 !important;
+                        --zoom-main: 1 !important;
+                    }
+
+                    html,
+                    body {
+                        overflow-x: hidden;
+                    }
+                }
+            `}</style>
+
             {/* ============================================================= */}
             {/* 🟢 BRILLO DE FONDO (neblina) – se activa con efectos */}
             {/* ============================================================= */}
@@ -14720,11 +15083,11 @@ export default function DashboardCompleto() {
             {/* 🔴 ZOOM HEADER SUPERIOR – se controla desde dashboard/layout.tsx */}
             {/* ============================================================= */}
             <header
-                className={`relative z-10 border-b transition-all duration-700 ease-in-out ${barraLateralContraída ? 'pl-20' : 'pl-64'} ${modoOscuro ? 'bg-slate-950/80 backdrop-blur-lg border-white/10' : 'bg-gray-100/80 backdrop-blur-lg border-gray-300'}`}
+                className={`sticky top-0 z-40 border-b transition-all duration-700 ease-in-out lg:relative lg:z-10 ${barraLateralContraída ? 'lg:pl-20' : 'lg:pl-64'} ${modoOscuro ? 'bg-slate-950/90 backdrop-blur-lg border-white/10 lg:bg-slate-950/80' : 'bg-gray-100/90 backdrop-blur-lg border-gray-300 lg:bg-gray-100/80'}`}
                 style={{ zoom: "var(--zoom-header)" } as CSSProperties}
             >
-                <div className="px-6 py-4">
-                    <div className="flex items-center justify-between">
+                <div className="px-3 py-3 sm:px-4 lg:px-6 lg:py-4">
+                    <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3">
                             <div className="relative">
                                 {/* LOGO CON BRILLO CONDICIONAL */}
@@ -14742,12 +15105,12 @@ export default function DashboardCompleto() {
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/25 text-cyan-400 text-xs font-bold">
                                         🇨🇱 CHILE
                                     </span>
-                                    <span className={`text-xs ${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>Sistema de Gestión de Flotas</span>
+                                    <span className={`hidden text-xs sm:inline ${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>Sistema de Gestión de Flotas</span>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2 sm:gap-4">
                             {/* Controles con emojis ☀️🌙 */}
                             <div className="flex items-center gap-2">
                                 <button
@@ -14768,7 +15131,7 @@ export default function DashboardCompleto() {
 
                             {/* Empresa actual / selector para Dueño global */}
                             {empresaActual && (
-                                <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5">
+                                <div className="hidden items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 md:flex">
                                     <div className="h-2 w-2 rounded-full bg-emerald-500" />
 
                                     <div className="text-left">
@@ -14809,8 +15172,8 @@ export default function DashboardCompleto() {
                             )}
 
                             {/* Perfil de usuario */}
-                            <div className="flex items-center gap-3">
-                                <div className="text-right">
+                            <div className="flex items-center gap-2 sm:gap-3">
+                                <div className="hidden text-right sm:block">
                                     <p className={`text-sm font-black ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
                                         {esAdminGlobal ? 'Dueño FleetVision' : datosUsuario?.nombre || 'Usuario'}
                                     </p>
@@ -14850,15 +15213,15 @@ export default function DashboardCompleto() {
             {/* 🔴 ZOOM CONTENIDO PRINCIPAL – se controla desde dashboard/layout.tsx */}
             {/* ============================================================= */}
             <div
-                className={`relative z-10 transition-all duration-700 ease-in-out ${barraLateralContraída ? 'pl-20' : 'pl-64'
-                    } ${secciónActiva === 'activos' ? 'px-10 py-5' : 'px-6 py-8'
+                className={`relative z-10 pb-28 transition-all duration-700 ease-in-out lg:pb-16 ${barraLateralContraída ? 'lg:pl-20' : 'lg:pl-64'
+                    } ${secciónActiva === 'activos' ? 'px-3 py-4 sm:px-4 lg:px-10 lg:py-5' : 'px-3 py-5 sm:px-4 lg:px-6 lg:py-8'
                     }`}
                 style={{ zoom: "var(--zoom-main)" } as CSSProperties}
             >
                 <div className={secciónActiva === 'activos' ? 'mx-auto w-full max-w-[1400px]' : 'mx-auto max-w-7xl'}>
                     {secciónActiva === 'dashboard' && (
-                        <div className="mb-8">
-                            <h1 className={`text-3xl font-bold mb-2 ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
+                        <div className="mb-5 lg:mb-8">
+                            <h1 className={`mb-2 text-2xl font-bold leading-tight sm:text-3xl ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
                                 Bienvenido, <span className="text-cyan-500">{datosUsuario?.nombre || 'Usuario'}</span>
                             </h1>
                             <p className={`${modoOscuro ? 'text-slate-400' : 'text-gray-600'}`}>
@@ -15065,10 +15428,11 @@ export default function DashboardCompleto() {
             )}
 
             {empresaActual && datosUsuario && ChatInterno()}
+            {!chatAbierto && <NavegacionMovil />}
 
             {/* Footer */}
             <footer
-                className={`fixed bottom-0 left-0 right-0 z-20 border-t px-6 py-3 transition-all duration-700 ease-in-out ${barraLateralContraída ? 'pl-20' : 'pl-64'} ${modoOscuro ? 'border-white/10 bg-slate-950/90 backdrop-blur-sm' : 'border-gray-300 bg-gray-100/90 backdrop-blur-sm'}`}
+                className={`fixed bottom-0 left-0 right-0 z-20 hidden border-t px-6 py-3 transition-all duration-700 ease-in-out lg:block ${barraLateralContraída ? 'lg:pl-20' : 'lg:pl-64'} ${modoOscuro ? 'border-white/10 bg-slate-950/90 backdrop-blur-sm' : 'border-gray-300 bg-gray-100/90 backdrop-blur-sm'}`}
             >
                 <div className="max-w-7xl mx-auto flex items-center justify-between text-xs">
                     <div className={`${modoOscuro ? 'text-slate-500' : 'text-gray-500'}`}>
