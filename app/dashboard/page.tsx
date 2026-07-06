@@ -14728,7 +14728,7 @@ export default function DashboardCompleto() {
                 </button>
 
                 {chatAbierto && (
-                    <div className="fleetvision-chat-modal fixed inset-x-0 top-0 z-[1200] flex h-[var(--fleetvision-chat-vh)] w-full flex-col overflow-hidden border-0 border-cyan-500/25 bg-slate-950 text-white shadow-2xl shadow-cyan-500/20 lg:inset-auto lg:bottom-36 lg:right-6 lg:h-[600px] lg:w-[min(780px,calc(100vw-32px))] lg:rounded-3xl lg:border lg:backdrop-blur-xl">
+                    <div className="fleetvision-chat-modal fixed inset-x-0 top-0 z-[1200] flex h-[var(--fleetvision-chat-vh)] w-full flex-col overflow-hidden border-0 border-cyan-500/25 bg-slate-950 text-white shadow-2xl shadow-cyan-500/20 lg:inset-auto lg:top-32 lg:bottom-auto lg:right-6 lg:h-[560px] lg:max-h-[calc(100vh-170px)] lg:w-[min(780px,calc(100vw-32px))] lg:rounded-3xl lg:border lg:backdrop-blur-xl">
                         <div className="shrink-0 border-b border-white/10 bg-gradient-to-r from-cyan-950/90 via-slate-950 to-blue-950/90 px-4 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] lg:p-4">
                             <div className="flex items-center gap-3">
                                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-500/15 text-lg shadow-lg shadow-cyan-500/10 lg:h-11 lg:w-11">
