@@ -236,194 +236,371 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const { error: loginError, data: loginData } = await supabase.auth.signInWithPassword({
-                email: email.trim(),
-                password: password
-            });
+            // =====================================================
+            // 1. AUTENTICACIÓN CON SUPABASE
+            // =====================================================
+            const { error: authError, data: loginData } =
+                await supabase.auth.signInWithPassword({
+                    email: email.trim(),
+                    password: password
+                });
 
-            if (loginError) {
-                let userMessage = "Error de autenticación. Intenta nuevamente.";
-                if (loginError.message.includes("Invalid login credentials")) {
-                    userMessage = "❌ Correo o contraseña incorrectos";
-                } else if (loginError.message.includes("Email not confirmed")) {
-                    userMessage = "📧 Por favor, confirma tu correo electrónico";
-                } else if (loginError.message.includes("User not found")) {
-                    userMessage = "❌ Correo o contraseña incorrectos";
-                } else if (loginError.message.includes("weak password")) {
+            // =====================================================
+            // 2. CREDENCIALES INCORRECTAS
+            // Esto NO debe lanzar throw new Error()
+            // =====================================================
+            if (authError) {
+                let userMessage = "No se pudo iniciar sesión. Intenta nuevamente.";
+
+                if (
+                    authError.message.includes("Invalid login credentials") ||
+                    authError.message.includes("User not found")
+                ) {
+                    userMessage = "Correo o contraseña incorrectos";
+                } else if (authError.message.includes("Email not confirmed")) {
+                    userMessage = "Por favor, confirma tu correo electrónico";
+                } else if (authError.message.includes("weak password")) {
                     userMessage = "La contraseña es demasiado débil";
-                } else {
-                    userMessage = `⚠️ ${loginError.message}`;
                 }
-                throw new Error(userMessage);
+
+                console.warn("Login rechazado:", authError.message);
+
+                setPassword("");
+                setLoginError(userMessage);
+                showToast(userMessage, "error");
+                setLoading(false);
+
+                return;
             }
 
+            // =====================================================
+            // 3. VALIDAR USUARIO AUTENTICADO
+            // =====================================================
             const user = loginData.user;
+
             if (!user) {
-                throw new Error("No se pudo obtener información del usuario");
+                setLoginError("No se pudo obtener información del usuario");
+                showToast(
+                    "No se pudo obtener información del usuario",
+                    "error"
+                );
+                setLoading(false);
+                return;
             }
 
             console.log("✅ Login exitoso con:", user.email);
             console.log("🆔 User ID:", user.id);
 
-            const { data: empresasLogin, error: empresasLoginError } = await supabase.rpc(
-                'obtener_mis_empresas_login'
+            // =====================================================
+            // 4. OBTENER EMPRESAS DEL USUARIO
+            // =====================================================
+            const {
+                data: empresasLogin,
+                error: empresasLoginError
+            } = await supabase.rpc(
+                "obtener_mis_empresas_login"
             );
 
             if (empresasLoginError) {
-                console.error("❌ Error obtener_mis_empresas_login:", empresasLoginError);
+                console.warn(
+                    "Error obtener_mis_empresas_login:",
+                    empresasLoginError
+                );
+
                 await supabase.auth.signOut();
-                showToast("Error al cargar tus empresas. Intenta nuevamente.", "error");
+
+                showToast(
+                    "Error al cargar tus empresas. Intenta nuevamente.",
+                    "error"
+                );
+
                 setLoading(false);
                 return;
             }
 
+            // =====================================================
+            // 5. USUARIO SIN EMPRESAS
+            // =====================================================
             if (!empresasLogin || empresasLogin.length === 0) {
-                console.error("❌ Usuario sin empresas asignadas:", user.id);
+                console.warn(
+                    "Usuario sin empresas asignadas:",
+                    user.id
+                );
+
                 await supabase.auth.signOut();
-                showToast("No tienes empresas asignadas. Contacta al administrador.", "warning");
+
+                showToast(
+                    "No tienes empresas asignadas. Contacta al administrador.",
+                    "warning"
+                );
+
                 setLoading(false);
                 return;
             }
 
-            const empresaSeleccionada = empresasLogin[0];
-
-            localStorage.setItem("empresa_id", empresaSeleccionada.empresa_id);
-            localStorage.setItem("empresa_nombre", empresaSeleccionada.empresa);
-            localStorage.setItem(
-                "empresa_modo_demo",
-                empresaSeleccionada.modo_demo ? "true" : "false"
-            );
-
-            console.log("✅ Empresa login:", empresaSeleccionada);
-
-            const empresasActivas = (empresasLogin || []).filter(
-                (empresa: any) => empresa.empresa_activa !== false
+            // =====================================================
+            // 6. FILTRAR EMPRESAS ACTIVAS
+            // =====================================================
+            const empresasActivas = empresasLogin.filter(
+                (empresa: any) =>
+                    empresa.empresa_activa !== false
             );
 
             if (empresasActivas.length === 0) {
-                console.warn("⚠️ Usuario sin empresas activas");
+                console.warn(
+                    "Usuario sin empresas activas"
+                );
+
                 await supabase.auth.signOut();
-                showToast("No tienes empresas activas asignadas.", "warning");
+
+                showToast(
+                    "No tienes empresas activas asignadas.",
+                    "warning"
+                );
+
                 setLoading(false);
                 return;
             }
 
+            // =====================================================
+            // 7. OBTENER INFORMACIÓN DEL USUARIO
+            // =====================================================
             let usuarioInfo: any = null;
 
             try {
-                const { data: usuarioData, error: usuarioError } = await supabase
-                    .from('usuarios')
-                    .select('*')
-                    .eq('auth_id', user.id)
+                const {
+                    data: usuarioData,
+                    error: usuarioError
+                } = await supabase
+                    .from("usuarios")
+                    .select("*")
+                    .eq("auth_id", user.id)
                     .maybeSingle();
 
                 if (usuarioError) {
-                    console.log("ℹ️ Error leyendo usuario público:", usuarioError);
+                    console.warn(
+                        "No se pudo leer información adicional del usuario:",
+                        usuarioError.message
+                    );
                 }
 
                 if (usuarioData) {
                     usuarioInfo = usuarioData;
                 }
+
             } catch (dbError) {
-                console.log("ℹ️ Información adicional de usuario no crítica:", dbError);
+                console.warn(
+                    "Información adicional de usuario no disponible:",
+                    dbError
+                );
             }
 
-            if (usuarioInfo && usuarioInfo.activo === false) {
+            // =====================================================
+            // 8. VALIDAR SI EL USUARIO ESTÁ ACTIVO
+            // =====================================================
+            if (
+                usuarioInfo &&
+                usuarioInfo.activo === false
+            ) {
                 await supabase.auth.signOut();
-                showToast("🚫 Tu cuenta está desactivada. Contacta al administrador.", "error");
+
+                showToast(
+                    "Tu cuenta está desactivada. Contacta al administrador.",
+                    "error"
+                );
+
                 setLoading(false);
                 return;
             }
 
+            // =====================================================
+            // 9. LIMPIAR DATOS ANTERIORES
+            // =====================================================
             sessionStorage.clear();
-            localStorage.removeItem('user_data');
-            localStorage.removeItem('user_id');
-            localStorage.removeItem('auth_id');
-            localStorage.removeItem('empresa_id');
-            localStorage.removeItem('empresa_nombre');
-            localStorage.removeItem('empresa_activa');
-            localStorage.removeItem('empresa_modo_demo');
-            localStorage.removeItem('empresas_disponibles');
 
+            localStorage.removeItem("user_data");
+            localStorage.removeItem("user_id");
+            localStorage.removeItem("auth_id");
+            localStorage.removeItem("empresa_id");
+            localStorage.removeItem("empresa_nombre");
+            localStorage.removeItem("empresa_activa");
+            localStorage.removeItem("empresa_modo_demo");
+            localStorage.removeItem("empresas_disponibles");
+
+            // =====================================================
+            // 10. CREAR DATOS DEL USUARIO
+            // =====================================================
             const userData = {
                 id: usuarioInfo?.id || user.id,
                 auth_id: user.id,
-                email: user.email || '',
+                email: user.email || "",
+
                 nombre:
                     usuarioInfo?.username ||
                     usuarioInfo?.apellido ||
-                    user.email?.split('@')[0] ||
-                    'Usuario',
-                role: usuarioInfo?.rol || 'demo',
-                activo: usuarioInfo?.activo !== false
+                    user.email?.split("@")[0] ||
+                    "Usuario",
+
+                role:
+                    usuarioInfo?.rol ||
+                    "demo",
+
+                activo:
+                    usuarioInfo?.activo !== false
             };
 
-            sessionStorage.setItem('user_data', JSON.stringify(userData));
-            sessionStorage.setItem('user_id', userData.id);
-            sessionStorage.setItem('auth_id', user.id);
-            sessionStorage.setItem('user_email', user.email || '');
-            sessionStorage.setItem('user_role', userData.role);
+            // =====================================================
+            // 11. GUARDAR SESIÓN
+            // =====================================================
+            sessionStorage.setItem(
+                "user_data",
+                JSON.stringify(userData)
+            );
 
-            const empresasNormalizadas = empresasActivas.map((empresa: any) => ({
-                id: empresa.empresa_id,
-                nombre: empresa.empresa,
-                rut: empresa.rut,
-                activo: empresa.empresa_activa !== false,
-                modo_demo: empresa.modo_demo === true
-            }));
+            sessionStorage.setItem(
+                "user_id",
+                userData.id
+            );
 
+            sessionStorage.setItem(
+                "auth_id",
+                user.id
+            );
+
+            sessionStorage.setItem(
+                "user_email",
+                user.email || ""
+            );
+
+            sessionStorage.setItem(
+                "user_role",
+                userData.role
+            );
+
+            // =====================================================
+            // 12. NORMALIZAR EMPRESAS
+            // =====================================================
+            const empresasNormalizadas =
+                empresasActivas.map((empresa: any) => ({
+                    id: empresa.empresa_id,
+                    nombre: empresa.empresa,
+                    rut: empresa.rut,
+                    activo:
+                        empresa.empresa_activa !== false,
+                    modo_demo:
+                        empresa.modo_demo === true
+                }));
+
+            // =====================================================
+            // 13. SI TIENE UNA SOLA EMPRESA
+            // =====================================================
             if (empresasNormalizadas.length === 1) {
-                const empresa = empresasNormalizadas[0];
+                const empresa =
+                    empresasNormalizadas[0];
 
-                sessionStorage.setItem('empresa_activa', JSON.stringify(empresa));
-                sessionStorage.setItem('empresa_id', empresa.id);
-                sessionStorage.setItem('empresa_nombre', empresa.nombre);
-                sessionStorage.setItem('empresa_modo_demo', empresa.modo_demo ? 'true' : 'false');
+                sessionStorage.setItem(
+                    "empresa_activa",
+                    JSON.stringify(empresa)
+                );
 
-                localStorage.setItem('empresa_id', empresa.id);
-                localStorage.setItem('empresa_nombre', empresa.nombre);
-                localStorage.setItem('empresa_modo_demo', empresa.modo_demo ? 'true' : 'false');
+                sessionStorage.setItem(
+                    "empresa_id",
+                    empresa.id
+                );
 
-                console.log("🏢 Empresa auto-seleccionada:", empresa.nombre);
-                showToast(`¡Bienvenido ${userData.nombre}!`, "success");
+                sessionStorage.setItem(
+                    "empresa_nombre",
+                    empresa.nombre
+                );
+
+                sessionStorage.setItem(
+                    "empresa_modo_demo",
+                    empresa.modo_demo
+                        ? "true"
+                        : "false"
+                );
+
+                localStorage.setItem(
+                    "empresa_id",
+                    empresa.id
+                );
+
+                localStorage.setItem(
+                    "empresa_nombre",
+                    empresa.nombre
+                );
+
+                localStorage.setItem(
+                    "empresa_modo_demo",
+                    empresa.modo_demo
+                        ? "true"
+                        : "false"
+                );
+
+                console.log(
+                    "🏢 Empresa auto-seleccionada:",
+                    empresa.nombre
+                );
+
+                showToast(
+                    `¡Bienvenido ${userData.nombre}!`,
+                    "success"
+                );
 
                 setTimeout(() => {
-                    router.push('/dashboard');
+                    router.push("/dashboard");
                 }, 1000);
 
                 return;
             }
 
-            sessionStorage.setItem('empresas_disponibles', JSON.stringify(empresasNormalizadas));
-            localStorage.setItem('empresas_disponibles', JSON.stringify(empresasNormalizadas));
+            // =====================================================
+            // 14. SI TIENE VARIAS EMPRESAS
+            // =====================================================
+            sessionStorage.setItem(
+                "empresas_disponibles",
+                JSON.stringify(empresasNormalizadas)
+            );
 
-            console.log(`🏢 ${empresasNormalizadas.length} empresas disponibles para selección`);
-            showToast(`¡Bienvenido ${userData.nombre}!`, "success");
+            localStorage.setItem(
+                "empresas_disponibles",
+                JSON.stringify(empresasNormalizadas)
+            );
+
+            console.log(
+                `🏢 ${empresasNormalizadas.length} empresas disponibles para selección`
+            );
+
+            showToast(
+                `¡Bienvenido ${userData.nombre}!`,
+                "success"
+            );
 
             setTimeout(() => {
-                router.push('/seleccion-empresa');
+                router.push("/seleccion-empresa");
             }, 1000);
 
             return;
-            setEmail("");
-            setPassword("");
 
         } catch (error: any) {
-            console.error("❌ Error en login:", error);
+            // Aquí solamente deberían llegar fallos inesperados
+            console.warn(
+                "Fallo inesperado durante el login:",
+                error
+            );
+
             setPassword("");
 
-            const userMessage = error?.message || "Error de autenticación. Intenta nuevamente.";
+            const userMessage =
+                "Ocurrió un problema al iniciar sesión. Intenta nuevamente.";
+
             setLoginError(userMessage);
             showToast(userMessage, "error");
 
-            setLoading(false);
         } finally {
-            setTimeout(() => {
-                setLoading(false);
-            }, 100);
+            setLoading(false);
         }
     };
-
     const handleForgotPassword = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!forgotEmail.trim()) {

@@ -6,6 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabase';
 import type { CSSProperties } from 'react';
+import * as XLSX from 'xlsx';
 
 // -------------------------------------------------------------
 // 🟦 Tipos de datos (interfaces)
@@ -256,6 +257,17 @@ interface PlanSaasDueno {
     limite_soporte: number | null;
     limite_tecnico: number | null;
 }
+interface PlanMantenimientoBase {
+    id: string;
+    categoria: string;
+    nombre: string;
+    intervalo: string;
+    unidad: string;
+    icono: string;
+    descripcion: string;
+    tareas: string[];
+    clase: string;
+}
 // =============================================================
 // 🟢 SECCIÓN VERDE – Componente principal DashboardCompleto
 // =============================================================
@@ -307,6 +319,10 @@ export default function DashboardCompleto() {
         kilometraje: 0,
     });
     const [busquedaActivos, setBusquedaActivos] = useState('');
+    const [vistaPlanMantenimiento, setVistaPlanMantenimiento] = useState<'biblioteca' | 'mis_planes' | 'activos'>('biblioteca');
+    const [busquedaPlanMantenimiento, setBusquedaPlanMantenimiento] = useState('');
+    const [planMantenimientoSeleccionado, setPlanMantenimientoSeleccionado] = useState<PlanMantenimientoBase | null>(null);
+    const [modoPlanMantenimiento, setModoPlanMantenimiento] = useState<'detalles' | 'gestionar'>('detalles');
     const [filtrosActivosAbierto, setFiltrosActivosAbierto] = useState(false);
     const [filtrosActivos, setFiltrosActivos] = useState({
         patente: '',
@@ -3898,7 +3914,20 @@ export default function DashboardCompleto() {
                         </button>
                     </div>
 
-                    <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+                    <nav
+                        className="
+        flex-1 p-4 space-y-1 overflow-y-auto
+
+        [scrollbar-width:thin]
+        [scrollbar-color:rgba(34,211,238,0.65)_rgba(8,18,35,0.75)]
+
+        [&::-webkit-scrollbar]:w-2
+        [&::-webkit-scrollbar-track]:bg-[#081223]
+        [&::-webkit-scrollbar-thumb]:rounded-full
+        [&::-webkit-scrollbar-thumb]:bg-cyan-500/60
+        [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/80
+    "
+                    >
                         {seccionesPermitidas.map((sección) => (
                             <button
                                 key={sección.id}
@@ -8143,57 +8172,232 @@ export default function DashboardCompleto() {
             </div>
         );
     };
-    /** Plan de Mantenimiento - Vista Profesional *///////////////////////////////////////////////////////
+    /** Plan de Mantenimiento - Biblioteca FleetVision + planes por empresa */
     const PlanMantenimiento = () => {
         if (!empresaActual) {
             return (
-                <div className="min-h-[60vh] flex items-center justify-center">
-                    <div className="text-center max-w-md rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-8 backdrop-blur-lg">
-                        <div className="text-5xl mb-4 text-slate-600">🏢</div>
-                        <h3 className="text-2xl font-bold text-white mb-2">No hay empresa asignada</h3>
-                        <p className="text-slate-400 mb-6">
-                            Para generar un plan de mantenimiento, primero debes tener una empresa activa.
+                <div className="flex min-h-[60vh] items-center justify-center">
+                    <div className="max-w-md rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-8 text-center shadow-xl shadow-cyan-500/10 backdrop-blur-lg">
+                        <div className="mb-4 text-5xl text-slate-600">🏢</div>
+                        <h3 className="mb-2 text-2xl font-black text-white">No hay empresa asignada</h3>
+                        <p className="mb-6 text-sm text-slate-400">
+                            Para trabajar con planes de mantenimiento, primero debes tener una empresa activa.
                         </p>
                     </div>
                 </div>
             );
         }
 
-        const normalizarFecha = (fecha: Date) => {
-            return fecha instanceof Date ? fecha : new Date(fecha);
+        const normalizarTexto = (valor: string | number | null | undefined) =>
+            String(valor || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .trim();
+
+        const formatearNumero = (valor: number | null | undefined) => {
+            const numero = Number(valor || 0);
+            return numero.toLocaleString('es-CL');
         };
 
-        const obtenerDiasHastaMantenimiento = (fecha: Date) => {
-            const fechaMantenimiento = normalizarFecha(fecha);
-            const diferencia = fechaMantenimiento.getTime() - Date.now();
-            return Math.ceil(diferencia / (1000 * 60 * 60 * 24));
+        const normalizarFecha = (fecha: Date | string | null | undefined) => {
+            if (!fecha) return null;
+            const fechaNormalizada = fecha instanceof Date ? fecha : new Date(fecha);
+            return Number.isNaN(fechaNormalizada.getTime()) ? null : fechaNormalizada;
         };
 
-        const formatearFechaCorta = (fecha: Date) => {
-            return normalizarFecha(fecha).toLocaleDateString('es-CL', {
+        const formatearFechaCorta = (fecha: Date | string | null | undefined) => {
+            const fechaNormalizada = normalizarFecha(fecha);
+
+            if (!fechaNormalizada) return 'Sin fecha';
+
+            return fechaNormalizada.toLocaleDateString('es-CL', {
                 day: '2-digit',
                 month: '2-digit',
                 year: 'numeric',
             });
         };
 
-        const formatearFechaLarga = (fecha: Date) => {
-            return normalizarFecha(fecha).toLocaleDateString('es-CL', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-            });
+        const obtenerDiasHastaMantenimiento = (fecha: Date | string | null | undefined) => {
+            const fechaNormalizada = normalizarFecha(fecha);
+
+            if (!fechaNormalizada) return null;
+
+            const diferencia = fechaNormalizada.getTime() - Date.now();
+            return Math.ceil(diferencia / (1000 * 60 * 60 * 24));
         };
 
-        const obtenerEstadoPlan = (dias: number) => {
+        const obtenerIconoActivo = (tipo: string | null | undefined) => {
+            const tipoNormalizado = normalizarTexto(tipo);
+
+            if (tipoNormalizado.includes('liviano') || tipoNormalizado.includes('camioneta') || tipoNormalizado.includes('auto')) return '🚙';
+            if (tipoNormalizado.includes('transporte') || tipoNormalizado.includes('camion') || tipoNormalizado.includes('bus')) return '🚛';
+            if (tipoNormalizado.includes('maquinaria') || tipoNormalizado.includes('excavadora') || tipoNormalizado.includes('cargador') || tipoNormalizado.includes('retro')) return '🏗️';
+            if (tipoNormalizado.includes('agricola') || tipoNormalizado.includes('tractor')) return '🚜';
+
+            return '🚚';
+        };
+
+        const planesEstandar: PlanMantenimientoBase[] = [
+            {
+                id: 'liviano-estandar',
+                categoria: 'Vehículo liviano',
+                nombre: 'Plan liviano estándar',
+                intervalo: 'Cada 10.000 km',
+                unidad: 'Kilometraje',
+                icono: '🚙',
+                descripcion: 'Base preventiva para camionetas, autos de servicio y vehículos livianos.',
+                tareas: [
+                    'Cambio de aceite motor y filtro',
+                    'Revisión de frenos',
+                    'Inspección de neumáticos',
+                    'Revisión de luces y batería',
+                    'Control de fluidos',
+                ],
+                clase: 'border-cyan-500/25 bg-cyan-500/10 text-cyan-300',
+            },
+            {
+                id: 'transporte-estandar',
+                categoria: 'Transporte',
+                nombre: 'Plan transporte estándar',
+                intervalo: 'Cada 10.000 km / 250 h',
+                unidad: 'Kilometraje u horas',
+                icono: '🚛',
+                descripcion: 'Base para camiones, buses, reparto, ruta y flotas de transporte.',
+                tareas: [
+                    'Cambio de fluidos y filtros',
+                    'Inspección de frenos',
+                    'Revisión de suspensión',
+                    'Control de dirección',
+                    'Chequeo eléctrico operacional',
+                ],
+                clase: 'border-blue-500/25 bg-blue-500/10 text-blue-300',
+            },
+            {
+                id: 'maquinaria-estandar',
+                categoria: 'Maquinaria pesada',
+                nombre: 'Plan maquinaria estándar',
+                intervalo: 'Cada 250 h / 500 h',
+                unidad: 'Horas de operación',
+                icono: '🏗️',
+                descripcion: 'Base para equipos pesados, cargadores, excavadoras y maquinaria de faena.',
+                tareas: [
+                    'Cambio de aceite y filtros',
+                    'Inspección hidráulica',
+                    'Revisión tren de rodaje',
+                    'Control de enfriamiento',
+                    'Lubricación general',
+                ],
+                clase: 'border-amber-500/25 bg-amber-500/10 text-amber-300',
+            },
+            {
+                id: 'agricola-estandar',
+                categoria: 'Agrícola',
+                nombre: 'Plan agrícola estándar',
+                intervalo: 'Cada 250 h / 500 h',
+                unidad: 'Horas de operación',
+                icono: '🚜',
+                descripcion: 'Base para tractores, implementos agrícolas y equipos de temporada.',
+                tareas: [
+                    'Lubricación general',
+                    'Cambio de filtros',
+                    'Revisión hidráulica',
+                    'Inspección toma de fuerza',
+                    'Control de transmisión',
+                ],
+                clase: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300',
+            },
+        ];
+        const abrirModuloPlanMantenimiento = (
+            plan: PlanMantenimientoBase,
+            modo: 'detalles' | 'gestionar'
+        ) => {
+            setPlanMantenimientoSeleccionado(plan);
+            setModoPlanMantenimiento(modo);
+        };
+        const exportarPlanExcel = () => {
+            if (!planMantenimientoSeleccionado) return;
+
+            const filas = planMantenimientoSeleccionado.tareas.map((tarea, index) => ({
+                'N°': index + 1,
+                'Actividad de mantenimiento': tarea,
+                'Intervalo': planMantenimientoSeleccionado.intervalo,
+                'Unidad': planMantenimientoSeleccionado.unidad,
+                'Tiempo estimado': '',
+                'Especialidad': '',
+                'Prioridad': '',
+                'Observaciones': '',
+            }));
+
+            const hoja = XLSX.utils.json_to_sheet(filas);
+
+            const libro = XLSX.utils.book_new();
+
+            XLSX.utils.book_append_sheet(
+                libro,
+                hoja,
+                'Actividades'
+            );
+
+            const nombreArchivo = planMantenimientoSeleccionado.nombre
+                .replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ ]/g, '')
+                .replace(/\s+/g, '_');
+
+            XLSX.writeFile(
+                libro,
+                `${nombreArchivo}.xlsx`
+            );
+        };
+
+        const cerrarModuloPlanMantenimiento = () => {
+            setPlanMantenimientoSeleccionado(null);
+            setModoPlanMantenimiento('detalles');
+        };
+
+        const obtenerPlanSugerido = (activo: Activo) => {
+            const tipo = normalizarTexto(activo.tipo);
+
+            if (tipo.includes('liviano') || tipo.includes('camioneta') || tipo.includes('auto')) {
+                return planesEstandar[0];
+            }
+
+            if (tipo.includes('transporte') || tipo.includes('camion') || tipo.includes('bus')) {
+                return planesEstandar[1];
+            }
+
+            if (tipo.includes('maquinaria') || tipo.includes('excavadora') || tipo.includes('cargador') || tipo.includes('retro')) {
+                return planesEstandar[2];
+            }
+
+            if (tipo.includes('agricola') || tipo.includes('tractor')) {
+                return planesEstandar[3];
+            }
+
+            return {
+                ...planesEstandar[0],
+                categoria: 'Plan sugerido',
+                nombre: 'Plan preventivo base',
+                descripcion: 'Plan base sugerido mientras se define una plantilla específica para este tipo de activo.',
+            };
+        };
+
+        const obtenerEstadoProgramacion = (activo: Activo) => {
+            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
+
+            if (dias === null) {
+                return {
+                    texto: 'Sin fecha',
+                    detalle: 'Pendiente',
+                    clase: 'border-slate-500/25 bg-slate-500/10 text-slate-300',
+                    prioridad: 4,
+                };
+            }
+
             if (dias < 0) {
                 return {
                     texto: 'Vencido',
-                    detalle: 'Fuera de plazo',
-                    icono: '🚨',
-                    clase: 'bg-red-500/20 text-red-400 border-red-500/30',
-                    barra: 'from-red-500 to-orange-500',
+                    detalle: `${Math.abs(dias)} días atrasado`,
+                    clase: 'border-red-500/30 bg-red-500/10 text-red-300',
                     prioridad: 1,
                 };
             }
@@ -8201,10 +8405,8 @@ export default function DashboardCompleto() {
             if (dias <= 7) {
                 return {
                     texto: 'Crítico',
-                    detalle: 'Atender esta semana',
-                    icono: '⚠️',
-                    clase: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-                    barra: 'from-orange-500 to-amber-500',
+                    detalle: `${dias} días`,
+                    clase: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
                     prioridad: 2,
                 };
             }
@@ -8212,886 +8414,1243 @@ export default function DashboardCompleto() {
             if (dias <= 14) {
                 return {
                     texto: 'Próximo',
-                    detalle: 'Programar pronto',
-                    icono: '⏰',
-                    clase: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-                    barra: 'from-amber-500 to-yellow-500',
+                    detalle: `${dias} días`,
+                    clase: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
                     prioridad: 3,
-                };
-            }
-
-            if (dias <= 30) {
-                return {
-                    texto: 'Programado',
-                    detalle: 'Dentro del mes',
-                    icono: '📅',
-                    clase: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
-                    barra: 'from-cyan-500 to-blue-500',
-                    prioridad: 4,
                 };
             }
 
             return {
                 texto: 'Controlado',
-                detalle: 'Sin urgencia',
-                icono: '✅',
-                clase: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-                barra: 'from-emerald-500 to-green-500',
-                prioridad: 5,
+                detalle: `${dias} días`,
+                clase: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+                prioridad: 4,
             };
-        };
-
-        const obtenerIntervaloPorTipo = (tipo: string) => {
-            const tipoNormalizado = tipo?.toLowerCase() || '';
-
-            if (tipoNormalizado.includes('maquinaria')) return 250;
-            if (tipoNormalizado.includes('camión')) return 10000;
-            if (tipoNormalizado.includes('camion')) return 10000;
-            if (tipoNormalizado.includes('transporte')) return 10000;
-            if (tipoNormalizado.includes('trailer')) return 10000;
-            if (tipoNormalizado.includes('vehículo liviano')) return 10000;
-            if (tipoNormalizado.includes('vehiculo liviano')) return 10000;
-            if (tipoNormalizado.includes('agrícola')) return 250;
-            if (tipoNormalizado.includes('agricola')) return 250;
-
-            return 500;
-        };
-
-        const obtenerUnidadPorTipo = (tipo: string) => {
-            const tipoNormalizado = tipo?.toLowerCase() || '';
-
-            if (tipoNormalizado.includes('camión')) return 'km';
-            if (tipoNormalizado.includes('camion')) return 'km';
-            if (tipoNormalizado.includes('transporte')) return 'km';
-            if (tipoNormalizado.includes('trailer')) return 'km';
-            if (tipoNormalizado.includes('vehículo liviano')) return 'km';
-            if (tipoNormalizado.includes('vehiculo liviano')) return 'km';
-
-            return 'h';
-        };
-
-        const obtenerIconoActivo = (tipo: string) => {
-            const tipoNormalizado = tipo?.toLowerCase() || '';
-
-            if (tipoNormalizado.includes('camión')) return '🚚';
-            if (tipoNormalizado.includes('camion')) return '🚚';
-            if (tipoNormalizado.includes('transporte')) return '🚛';
-            if (tipoNormalizado.includes('trailer')) return '🚛';
-            if (tipoNormalizado.includes('vehículo liviano')) return '🚙';
-            if (tipoNormalizado.includes('vehiculo liviano')) return '🚙';
-            if (tipoNormalizado.includes('maquinaria')) return '🚜';
-            if (tipoNormalizado.includes('agrícola')) return '🌾';
-            if (tipoNormalizado.includes('agricola')) return '🌾';
-
-            return '⚙️';
-        };
-
-        const obtenerCostoReferencial = (activo: Activo) => {
-            const tipo = activo.tipo?.toLowerCase() || '';
-
-            if (tipo.includes('maquinaria')) return 850000;
-            if (tipo.includes('camión')) return 650000;
-            if (tipo.includes('camion')) return 650000;
-            if (tipo.includes('transporte')) return 650000;
-            if (tipo.includes('trailer')) return 380000;
-            if (tipo.includes('vehículo liviano')) return 180000;
-            if (tipo.includes('vehiculo liviano')) return 180000;
-            if (tipo.includes('agrícola')) return 420000;
-            if (tipo.includes('agricola')) return 420000;
-
-            return 300000;
         };
 
         const obtenerProximoMedidor = (activo: Activo) => {
-            const intervalo = obtenerIntervaloPorTipo(activo.tipo);
-            const unidad = obtenerUnidadPorTipo(activo.tipo);
-            const medidorActual = Number(activo.kilometraje || 0);
-            const proximo = medidorActual <= 0
-                ? intervalo
-                : Math.ceil((medidorActual + 1) / intervalo) * intervalo;
+            const kilometrajeActual = Number(activo.kilometraje || 0);
+            const plan = obtenerPlanSugerido(activo);
+            const tipo = normalizarTexto(plan.categoria);
 
-            return {
-                intervalo,
-                unidad,
-                medidorActual,
-                proximo,
-                restante: Math.max(proximo - medidorActual, 0),
-            };
+            if (!kilometrajeActual) return 'Sin medidor';
+
+            if (tipo.includes('liviano') || tipo.includes('transporte')) {
+                const intervalo = 10000;
+                const proximo = Math.floor(kilometrajeActual / intervalo + 1) * intervalo;
+                return `${formatearNumero(proximo)} km`;
+            }
+
+            const intervaloHoras = 250;
+            const proximoHoras = Math.floor(kilometrajeActual / intervaloHoras + 1) * intervaloHoras;
+            return `${formatearNumero(proximoHoras)} h`;
         };
 
-        const obtenerTipoMantenimiento = (dias: number, activo: Activo) => {
-            if (activo.estado === 'crítico') {
-                return {
-                    tipo: 'Correctivo Prioritario',
-                    icono: '🚨',
-                    clase: 'text-red-400',
-                };
-            }
-
-            if (dias <= 7) {
-                return {
-                    tipo: 'Preventivo Urgente',
-                    icono: '🔧',
-                    clase: 'text-orange-400',
-                };
-            }
-
-            if (dias <= 30) {
-                return {
-                    tipo: 'Preventivo Programado',
-                    icono: '🛡️',
-                    clase: 'text-cyan-400',
-                };
-            }
-
-            return {
-                tipo: 'Seguimiento Operacional',
-                icono: '📡',
-                clase: 'text-emerald-400',
-            };
+        const manejarAccionProxima = (titulo: string, mensaje: string) => {
+            mostrarModalSistema(
+                'info',
+                titulo,
+                mensaje,
+                'Esta etapa queda preparada visualmente. El siguiente paso será crear las tablas reales en Supabase para guardar planes, tareas y asignaciones por empresa.'
+            );
         };
 
-        const activosOrdenados = [...activos].sort((a, b) => {
-            const diasA = obtenerDiasHastaMantenimiento(a.próximoMantenimiento);
-            const diasB = obtenerDiasHastaMantenimiento(b.próximoMantenimiento);
-            return diasA - diasB;
+        const terminoBusqueda = normalizarTexto(busquedaPlanMantenimiento);
+
+        const planesEstandarFiltrados = planesEstandar.filter((plan) => {
+            if (!terminoBusqueda) return true;
+
+            return [
+                plan.nombre,
+                plan.categoria,
+                plan.intervalo,
+                plan.unidad,
+                plan.descripcion,
+                ...plan.tareas,
+            ].some((valor) => normalizarTexto(valor).includes(terminoBusqueda));
         });
+
+        const activosFiltradosPlan = activos
+            .filter((activo) => {
+                if (!terminoBusqueda) return true;
+
+                return [
+                    activo.nombre,
+                    activo.marca,
+                    activo.modelo,
+                    activo.tipo,
+                    activo.patente,
+                    activo.estado,
+                    activo.año,
+                    activo.kilometraje,
+                ].some((valor) => normalizarTexto(valor).includes(terminoBusqueda));
+            })
+            .sort((a, b) => {
+                const estadoA = obtenerEstadoProgramacion(a);
+                const estadoB = obtenerEstadoProgramacion(b);
+
+                if (estadoA.prioridad !== estadoB.prioridad) {
+                    return estadoA.prioridad - estadoB.prioridad;
+                }
+
+                const diasA = obtenerDiasHastaMantenimiento(a.próximoMantenimiento) ?? 9999;
+                const diasB = obtenerDiasHastaMantenimiento(b.próximoMantenimiento) ?? 9999;
+
+                return diasA - diasB;
+            });
 
         const totalActivos = activos.length;
-
-        const activosVencidos = activos.filter((activo) => {
-            return obtenerDiasHastaMantenimiento(activo.próximoMantenimiento) < 0;
+        const activosConMedidor = activos.filter((activo) => Number(activo.kilometraje || 0) > 0).length;
+        const activosVencidos = activos.filter((activo) => obtenerEstadoProgramacion(activo).texto === 'Vencido').length;
+        const activosProximos = activos.filter((activo) => {
+            const estado = obtenerEstadoProgramacion(activo).texto;
+            return estado === 'Crítico' || estado === 'Próximo';
         }).length;
+        const activosControlados = activos.filter((activo) => obtenerEstadoProgramacion(activo).texto === 'Controlado').length;
 
-        const activosCriticos7Dias = activos.filter((activo) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            return dias >= 0 && dias <= 7;
-        }).length;
+        const categoriasDetectadas = new Set(
+            activos.map((activo) => obtenerPlanSugerido(activo).categoria)
+        ).size;
 
-        const activosProximos14Dias = activos.filter((activo) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            return dias > 7 && dias <= 14;
-        }).length;
+        const resumenPlan = [
+            {
+                titulo: 'Plantillas estándar',
+                valor: planesEstandar.length,
+                detalle: 'Biblioteca FleetVision',
+                icono: '📚',
+                clase: 'border-cyan-500/25 bg-cyan-500/10 text-cyan-300',
+            },
+            {
+                titulo: 'Activos evaluados',
+                valor: totalActivos,
+                detalle: `${activosConMedidor} con medidor`,
+                icono: '🚚',
+                clase: 'border-blue-500/25 bg-blue-500/10 text-blue-300',
+            },
+            {
+                titulo: 'Próximos / críticos',
+                valor: activosProximos,
+                detalle: 'Requieren programación',
+                icono: '⏱️',
+                clase: 'border-amber-500/25 bg-amber-500/10 text-amber-300',
+            },
+            {
+                titulo: 'Controlados',
+                valor: activosControlados,
+                detalle: activosVencidos > 0 ? `${activosVencidos} vencidos` : 'Sin vencidos',
+                icono: '✅',
+                clase: activosVencidos > 0
+                    ? 'border-red-500/25 bg-red-500/10 text-red-300'
+                    : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300',
+            },
+        ];
 
-        const activosProgramados30Dias = activos.filter((activo) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            return dias > 14 && dias <= 30;
-        }).length;
-
-        const activosControlados = activos.filter((activo) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            return dias > 30;
-        }).length;
-
-        const activosEnRiesgo = activos.filter((activo) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            return dias <= 14 || activo.estado === 'crítico';
-        });
-
-        const mantenimientos30Dias = activos.filter((activo) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            return dias <= 30;
-        });
-
-        const disponibilidadPromedio = totalActivos > 0
-            ? Math.round(activos.reduce((total, activo) => total + Number(activo.tiempoActivo || 0), 0) / totalActivos)
-            : 0;
-
-        const cumplimientoProgramacion = totalActivos > 0
-            ? Math.round(((totalActivos - activosVencidos) / totalActivos) * 100)
-            : 0;
-
-        const mantenimientosATiempo = totalActivos > 0
-            ? Math.round(((totalActivos - activosVencidos - activosCriticos7Dias) / totalActivos) * 100)
-            : 0;
-
-        const costoEstimado30Dias = mantenimientos30Dias.reduce((total, activo) => {
-            return total + obtenerCostoReferencial(activo);
-        }, 0);
-
-        const resumenPorTipo = activos.reduce((acumulador, activo) => {
-            const tipo = activo.tipo || 'Sin tipo';
-
-            if (!acumulador[tipo]) {
-                acumulador[tipo] = {
-                    total: 0,
-                    vencidos: 0,
-                    proximos: 0,
-                    controlados: 0,
-                    icono: obtenerIconoActivo(tipo),
-                };
-            }
-
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-
-            acumulador[tipo].total += 1;
-
-            if (dias < 0) {
-                acumulador[tipo].vencidos += 1;
-            } else if (dias <= 14) {
-                acumulador[tipo].proximos += 1;
-            } else {
-                acumulador[tipo].controlados += 1;
-            }
-
-            return acumulador;
-        }, {} as Record<string, {
-            total: number;
-            vencidos: number;
-            proximos: number;
-            controlados: number;
-            icono: string;
-        }>);
-
-        const manejarGenerarPlan = () => {
-            setNotificaciones(prev => [{
-                id: Date.now().toString(),
-                título: 'Plan de mantenimiento generado',
-                mensaje: `Se generó una propuesta preventiva para ${empresaActual.nombre}`,
-                tipo: 'éxito',
-                fecha: new Date(),
-                leída: false,
-                icono: '🔧',
-            }, ...prev]);
-
-            alert('Plan de mantenimiento generado como propuesta visual. El siguiente paso será guardarlo en Supabase.');
-        };
-
-        const TarjetaResumen = ({
-            titulo,
-            valor,
-            subtitulo,
+        const PestañaPlan = ({
+            id,
             icono,
-            clase,
-            borde,
+            titulo,
+            subtitulo,
         }: {
-            titulo: string;
-            valor: string | number;
-            subtitulo: string;
+            id: 'biblioteca' | 'mis_planes' | 'activos';
             icono: string;
-            clase: string;
-            borde: string;
-        }) => (
-            <div className={`rounded-2xl border ${borde} bg-slate-900/70 p-5 backdrop-blur-lg shadow-xl shadow-black/10`}>
-                <div className="flex items-start justify-between mb-4">
-                    <div>
-                        <p className="text-sm text-slate-400">{titulo}</p>
-                        <p className={`mt-1 text-3xl font-black ${clase}`}>{valor}</p>
-                    </div>
-
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/5 text-2xl">
-                        {icono}
-                    </div>
-                </div>
-
-                <p className="text-xs text-slate-500">{subtitulo}</p>
-            </div>
-        );
-
-        const TarjetaActivoMantenimiento = ({ activo }: { activo: Activo }) => {
-            const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-            const estadoPlan = obtenerEstadoPlan(dias);
-            const medidor = obtenerProximoMedidor(activo);
-            const mantenimiento = obtenerTipoMantenimiento(dias, activo);
-            const costo = obtenerCostoReferencial(activo);
+            titulo: string;
+            subtitulo: string;
+        }) => {
+            const activa = vistaPlanMantenimiento === id;
 
             return (
-                <div className="group rounded-2xl border border-white/10 bg-gradient-to-br from-slate-900/80 to-slate-950/80 p-5 backdrop-blur-lg transition-all duration-300 hover:-translate-y-1 hover:border-cyan-500/40 hover:shadow-xl hover:shadow-cyan-500/10">
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                        <div className="flex items-start gap-3">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/10 text-2xl">
-                                {obtenerIconoActivo(activo.tipo)}
-                            </div>
-
-                            <div>
-                                <h4 className="text-base font-black text-white">
-                                    {activo.nombre}
-                                </h4>
-
-                                <p className="text-xs text-slate-400">
-                                    {activo.marca} · {activo.modelo} · {activo.año}
-                                </p>
-
-                                <p className="mt-1 text-xs text-cyan-400">
-                                    Patente: {activo.patente}
-                                </p>
-                            </div>
-                        </div>
-
-                        <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-bold ${estadoPlan.clase}`}>
-                            {estadoPlan.icono} {estadoPlan.texto}
-                        </span>
-                    </div>
-
-                    <div className="mb-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Fecha programada</p>
-                            <p className="text-sm font-bold text-white">
-                                {formatearFechaCorta(activo.próximoMantenimiento)}
-                            </p>
-                        </div>
-
-                        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Plazo</p>
-                            <p className={`text-sm font-bold ${estadoPlan.clase.split(' ')[1]}`}>
-                                {dias < 0 ? `${Math.abs(dias)} días vencido` : `${dias} días`}
-                            </p>
-                        </div>
-
-                        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Medidor actual</p>
-                            <p className="text-sm font-bold text-white">
-                                {medidor.medidorActual.toLocaleString('es-CL')} {medidor.unidad}
-                            </p>
-                        </div>
-
-                        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                            <p className="text-xs text-slate-500">Próximo intervalo</p>
-                            <p className="text-sm font-bold text-cyan-300">
-                                {medidor.proximo.toLocaleString('es-CL')} {medidor.unidad}
-                            </p>
+                <button
+                    type="button"
+                    onClick={() => setVistaPlanMantenimiento(id)}
+                    className={`rounded-2xl border px-4 py-3 text-left transition-all duration-300 ${activa
+                        ? 'border-cyan-400/50 bg-cyan-500/15 text-white shadow-lg shadow-cyan-500/10'
+                        : 'border-white/10 bg-white/[0.03] text-slate-400 hover:border-cyan-500/25 hover:bg-cyan-500/10 hover:text-cyan-200'
+                        }`}
+                >
+                    <div className="flex items-center gap-3">
+                        <span className="text-xl">{icono}</span>
+                        <div>
+                            <p className="text-sm font-black">{titulo}</p>
+                            <p className="text-[11px] text-slate-500">{subtitulo}</p>
                         </div>
                     </div>
-
-                    <div className="mb-4 rounded-xl border border-cyan-500/10 bg-cyan-500/5 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <p className="text-xs text-slate-500">Tipo sugerido</p>
-                                <p className={`text-sm font-bold ${mantenimiento.clase}`}>
-                                    {mantenimiento.icono} {mantenimiento.tipo}
-                                </p>
-                            </div>
-
-                            <div className="text-right">
-                                <p className="text-xs text-slate-500">Costo ref.</p>
-                                <p className="text-sm font-black text-emerald-400">
-                                    ${costo.toLocaleString('es-CL')}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="border-t border-white/10 pt-4">
-                        <div className="flex items-center justify-between text-xs mb-2">
-                            <span className="text-slate-400">Estado de planificación</span>
-                            <span className="text-slate-300">{estadoPlan.detalle}</span>
-                        </div>
-
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-                            <div
-                                className={`h-full rounded-full bg-gradient-to-r ${estadoPlan.barra}`}
-                                style={{
-                                    width: dias < 0 ? '100%' : dias <= 7 ? '85%' : dias <= 14 ? '65%' : dias <= 30 ? '45%' : '20%',
-                                }}
-                            />
-                        </div>
-                    </div>
-                </div>
+                </button>
             );
         };
 
         return (
-            <div className="space-y-6">
-                {/* ENCABEZADO PRINCIPAL */}
-                <div className="relative overflow-hidden rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/95 via-slate-950/95 to-emerald-950/40 p-6 backdrop-blur-lg shadow-xl shadow-cyan-500/10">
-                    <div className="absolute -right-20 -top-20 h-60 w-60 rounded-full bg-emerald-500/10 blur-3xl" />
-                    <div className="absolute -left-20 -bottom-20 h-60 w-60 rounded-full bg-cyan-500/10 blur-3xl" />
+            <div className="space-y-5">
 
-                    <div className="relative z-10 flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
-                        <div>
-                            <div className="flex items-center gap-4 mb-3">
-                                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-br from-emerald-500 to-cyan-500 text-4xl shadow-lg shadow-emerald-500/30">
-                                    🔧
-                                </div>
 
-                                <div>
-                                    <h3 className="text-3xl font-black text-white tracking-tight">
-                                        Plan Maestro de Mantenimiento
-                                    </h3>
+                {/* Resumen ultra compacto */}
+                <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+                    {resumenPlan.map((item) => (
+                        <div
+                            key={item.titulo}
+                            className={`h-[58px] overflow-hidden rounded-2xl border px-3 py-2 shadow-lg shadow-black/10 ${item.clase}`}
+                        >
+                            <div className="flex h-full items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm leading-none">{item.icono}</span>
+                                        <p className="truncate text-[10px] font-black uppercase tracking-[0.16em] opacity-90">
+                                            {item.titulo}
+                                        </p>
+                                    </div>
 
-                                    <p className="text-sm text-cyan-400">
-                                        Programación preventiva, control de vencimientos y priorización técnica · {empresaActual.nombre}
+                                    <p className="mt-1 truncate text-[11px] leading-none text-slate-300/80">
+                                        {item.detalle}
                                     </p>
                                 </div>
-                            </div>
 
-                            <p className="max-w-4xl text-sm text-slate-400 leading-relaxed">
-                                Esta vista permite controlar el calendario de mantenimiento de la flota,
-                                detectar equipos vencidos, priorizar activos críticos, estimar costos y
-                                proyectar trabajos preventivos según fecha, medidor, kilometraje u horas de operación.
-                            </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3">
-                            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                                <p className="text-xs text-slate-400">Activos</p>
-                                <p className="text-2xl font-black text-white">{totalActivos}</p>
-                            </div>
-
-                            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3">
-                                <p className="text-xs text-red-300">Vencidos</p>
-                                <p className="text-2xl font-black text-red-400">{activosVencidos}</p>
-                            </div>
-
-                            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-                                <p className="text-xs text-amber-300">Próximos</p>
-                                <p className="text-2xl font-black text-amber-400">
-                                    {activosCriticos7Dias + activosProximos14Dias}
+                                <p className="shrink-0 text-2xl font-black leading-none text-white">
+                                    {item.valor}
                                 </p>
                             </div>
+                        </div>
+                    ))}
+                </div>
 
-                            <button
-                                onClick={manejarGenerarPlan}
-                                className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-5 py-4 text-sm font-bold text-white shadow-lg shadow-emerald-500/25 transition-all hover:scale-[1.03] hover:opacity-90"
-                            >
-                                <span className="text-xl">⚙️</span>
-                                <span>Generar Plan</span>
-                            </button>
+                {/* Controles */}
+                <div className="rounded-[24px] border border-white/10 bg-slate-950/80 p-4 shadow-xl shadow-black/20 backdrop-blur-lg">
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_420px]">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <PestañaPlan
+                                id="biblioteca"
+                                icono="📚"
+                                titulo="Biblioteca estándar"
+                                subtitulo="Planes base FleetVision"
+                            />
+
+                            <PestañaPlan
+                                id="mis_planes"
+                                icono="🛠️"
+                                titulo="Mis planes"
+                                subtitulo="Planes de la empresa"
+                            />
+
+                            <PestañaPlan
+                                id="activos"
+                                icono="🚚"
+                                titulo="Activos y planificación"
+                                subtitulo="Asignación preventiva"
+                            />
+                        </div>
+
+                        <div className="flex h-12 items-center gap-3 rounded-2xl border border-purple-500/30 bg-purple-500/10 px-4 shadow-[0_0_25px_rgba(168,85,247,0.10)]">
+                            <span className="text-purple-300">🔎</span>
+
+                            <input
+                                type="text"
+                                value={busquedaPlanMantenimiento}
+                                onChange={(e) => setBusquedaPlanMantenimiento(e.target.value)}
+                                placeholder="Buscar plan, activo, patente, modelo o tipo."
+                                className="h-full w-full bg-transparent text-sm font-bold text-white outline-none placeholder:text-slate-500"
+                            />
+
+                            {busquedaPlanMantenimiento && (
+                                <button
+                                    type="button"
+                                    onClick={() => setBusquedaPlanMantenimiento('')}
+                                    className="rounded-lg px-2 text-sm font-black text-slate-400 transition hover:bg-white/10 hover:text-white"
+                                >
+                                    ✕
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
 
-                {/* KPIS */}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <TarjetaResumen
-                        titulo="Disponibilidad Promedio"
-                        valor={`${disponibilidadPromedio}%`}
-                        subtitulo="Promedio de tiempo activo de la flota"
-                        icono="📈"
-                        clase="text-cyan-400"
-                        borde="border-cyan-500/20"
-                    />
+                {/* Vista: Biblioteca estándar */}
+                {vistaPlanMantenimiento === 'biblioteca' && (
+                    <div className="grid grid-cols-1 gap-5">
+                        <div className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-slate-950/95 via-slate-900/90 to-slate-950/95 p-5 shadow-xl shadow-black/20">
+                            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h4 className="text-xl font-black text-white">📚 Biblioteca estándar FleetVision</h4>
+                                    <p className="text-sm text-slate-400">
+                                        Plantillas base para guiar el mantenimiento preventivo.
+                                    </p>
+                                </div>
 
-                    <TarjetaResumen
-                        titulo="Mantenimientos a Tiempo"
-                        valor={`${mantenimientosATiempo}%`}
-                        subtitulo="Activos sin urgencia crítica inmediata"
-                        icono="✅"
-                        clase="text-emerald-400"
-                        borde="border-emerald-500/20"
-                    />
-
-                    <TarjetaResumen
-                        titulo="Cumplimiento Plan"
-                        valor={`${cumplimientoProgramacion}%`}
-                        subtitulo="Programación sin vencimientos activos"
-                        icono="📅"
-                        clase="text-blue-400"
-                        borde="border-blue-500/20"
-                    />
-
-                    <TarjetaResumen
-                        titulo="Costo 30 días"
-                        valor={`$${costoEstimado30Dias.toLocaleString('es-CL')}`}
-                        subtitulo="Estimación referencial de próximos trabajos"
-                        icono="💰"
-                        clase="text-amber-400"
-                        borde="border-amber-500/20"
-                    />
-
-                    <TarjetaResumen
-                        titulo="Activos en Riesgo"
-                        valor={activosEnRiesgo.length}
-                        subtitulo="Vencidos, críticos o próximos a 14 días"
-                        icono="🚨"
-                        clase="text-red-400"
-                        borde="border-red-500/20"
-                    />
-                </div>
-
-                {/* RESUMEN OPERACIONAL */}
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                    <div className="xl:col-span-2 rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-6">
-                            <div>
-                                <h4 className="text-2xl font-black text-white">📊 Estado General del Plan</h4>
-                                <p className="text-sm text-slate-400">
-                                    Distribución de mantenimiento según urgencia operacional.
-                                </p>
+                                <span className="w-fit rounded-full border border-cyan-500/25 bg-cyan-500/10 px-4 py-2 text-xs font-black text-cyan-300">
+                                    {planesEstandarFiltrados.length} plantillas visibles
+                                </span>
                             </div>
 
-                            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-4 py-3 text-right">
-                                <p className="text-xs text-cyan-300">Flota evaluada</p>
-                                <p className="text-xl font-black text-white">{totalActivos} activos</p>
+                            {/* Encabezado tipo tabla en escritorio */}
+                            <div className="mb-2 hidden grid-cols-[1.25fr_0.7fr_0.85fr_1.25fr_auto] gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 xl:grid">
+                                <div>Plan estándar</div>
+                                <div>Intervalo</div>
+                                <div>Unidad</div>
+                                <div>Tareas base</div>
+                                <div className="text-right">Acción</div>
+                            </div>
+
+                            {/* Listado horizontal */}
+                            <div className="space-y-3">
+                                {planesEstandarFiltrados.map((plan) => (
+                                    <div
+                                        key={plan.id}
+                                        className="rounded-3xl border border-white/10 bg-white/[0.03] px-4 py-3 transition hover:border-cyan-500/30 hover:bg-cyan-500/[0.05]"
+                                    >
+                                        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1.25fr_0.7fr_0.85fr_1.25fr_auto] xl:items-center">
+                                            {/* Plan */}
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-xl">
+                                                        {plan.icono}
+                                                    </div>
+
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <h5 className="truncate font-black text-white">
+                                                                {plan.nombre}
+                                                            </h5>
+
+                                                            <span className={`hidden rounded-full border px-2 py-0.5 text-[10px] font-black sm:inline-flex ${plan.clase}`}>
+                                                                Plantilla
+                                                            </span>
+                                                        </div>
+
+                                                        <p className="truncate text-xs text-slate-500">
+                                                            {plan.categoria} · {plan.descripcion}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Intervalo */}
+                                            <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:border-0">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 xl:hidden">
+                                                    Intervalo
+                                                </p>
+                                                <p className="truncate text-sm font-black text-white">
+                                                    {plan.intervalo}
+                                                </p>
+                                            </div>
+
+                                            {/* Unidad */}
+                                            <div className="rounded-2xl border border-white/10 bg-slate-950/50 px-3 py-2 xl:bg-transparent xl:px-0 xl:py-0 xl:border-0">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 xl:hidden">
+                                                    Unidad
+                                                </p>
+                                                <p className="truncate text-sm font-black text-cyan-200">
+                                                    {plan.unidad}
+                                                </p>
+                                            </div>
+
+                                            {/* Tareas en horizontal */}
+                                            <div className="min-w-0">
+                                                <p className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 xl:hidden">
+                                                    Tareas base
+                                                </p>
+
+                                                <div className="flex flex-wrap gap-2">
+                                                    {plan.tareas.slice(0, 3).map((tarea) => (
+                                                        <span
+                                                            key={tarea}
+                                                            className="max-w-[210px] truncate rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[11px] font-bold text-emerald-300"
+                                                        >
+                                                            ✓ {tarea}
+                                                        </span>
+                                                    ))}
+
+                                                    {plan.tareas.length > 3 && (
+                                                        <span className="rounded-full border border-slate-500/20 bg-slate-500/10 px-3 py-1 text-[11px] font-black text-slate-300">
+                                                            +{plan.tareas.length - 3}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* Acciones */}
+                                            <div className="flex items-center gap-2 xl:justify-end">
+
+                                                {/* DETALLES - acción secundaria */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => abrirModuloPlanMantenimiento(plan, 'detalles')}
+                                                    className="group inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-600/50 bg-slate-900/60 px-4 text-xs font-bold text-slate-300 transition-all hover:border-cyan-500/40 hover:bg-cyan-500/10 hover:text-cyan-300"
+                                                >
+                                                    <svg
+                                                        className="h-4 w-4 transition-transform group-hover:scale-110"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                                        />
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                                        />
+                                                    </svg>
+
+                                                    Ver
+                                                </button>
+
+                                                {/* GESTIONAR - acción principal */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => abrirModuloPlanMantenimiento(plan, 'gestionar')}
+                                                    className="group inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 text-xs font-black text-white shadow-lg shadow-cyan-500/20 transition-all hover:scale-[1.02] hover:shadow-cyan-500/35"
+                                                >
+                                                    <svg
+                                                        className="h-4 w-4 transition-transform duration-300 group-hover:rotate-45"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                                                        />
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                                        />
+                                                    </svg>
+
+                                                    Gestionar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
 
                         <div className="space-y-5">
-                            <div>
-                                <div className="mb-2 flex items-center justify-between text-sm">
-                                    <span className="text-slate-400">Cumplimiento de programación</span>
-                                    <span className="font-black text-emerald-400">{cumplimientoProgramacion}%</span>
-                                </div>
 
-                                <div className="h-4 w-full overflow-hidden rounded-full bg-slate-800">
-                                    <div
-                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-700"
-                                        style={{ width: `${cumplimientoProgramacion}%` }}
-                                    />
-                                </div>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-center">
-                                    <p className="text-3xl font-black text-red-400">{activosVencidos}</p>
-                                    <p className="text-xs text-slate-400">Vencidos</p>
-                                </div>
 
-                                <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4 text-center">
-                                    <p className="text-3xl font-black text-orange-400">{activosCriticos7Dias}</p>
-                                    <p className="text-xs text-slate-400">0-7 días</p>
-                                </div>
-
-                                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-center">
-                                    <p className="text-3xl font-black text-amber-400">{activosProximos14Dias}</p>
-                                    <p className="text-xs text-slate-400">8-14 días</p>
-                                </div>
-
-                                <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-center">
-                                    <p className="text-3xl font-black text-cyan-400">{activosProgramados30Dias}</p>
-                                    <p className="text-xs text-slate-400">15-30 días</p>
-                                </div>
-
-                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-center">
-                                    <p className="text-3xl font-black text-emerald-400">{activosControlados}</p>
-                                    <p className="text-xs text-slate-400">Controlados</p>
-                                </div>
-                            </div>
                         </div>
                     </div>
+                )}
 
-                    <div className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                        <h4 className="text-xl font-black text-white mb-1">🧠 Recomendación Técnica</h4>
-                        <p className="text-sm text-slate-400 mb-5">
-                            Priorización sugerida según criticidad, fecha y condición.
-                        </p>
-
-                        <div className="space-y-3">
-                            {activosVencidos > 0 && (
-                                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
-                                    <p className="text-sm font-bold text-red-300">🚨 Acción inmediata</p>
-                                    <p className="text-xs text-slate-400 mt-1">
-                                        Existen {activosVencidos} activos con mantenimiento vencido. Deben ser revisados antes de seguir operando.
-                                    </p>
-                                </div>
-                            )}
-
-                            {activosCriticos7Dias > 0 && (
-                                <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 p-4">
-                                    <p className="text-sm font-bold text-orange-300">⚠️ Programar esta semana</p>
-                                    <p className="text-xs text-slate-400 mt-1">
-                                        Hay {activosCriticos7Dias} mantenimientos dentro de los próximos 7 días.
-                                    </p>
-                                </div>
-                            )}
-
-                            {totalActivos === 0 && (
-                                <div className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4 text-center">
-                                    <div className="text-4xl mb-3 opacity-50">🚚</div>
+                {/* Vista: Mis planes */}
+                {vistaPlanMantenimiento === 'mis_planes' && (
+                    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
+                        <div className="rounded-[28px] border border-purple-500/20 bg-gradient-to-br from-slate-950/95 via-purple-950/30 to-slate-950/95 p-6 shadow-xl shadow-black/20">
+                            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h4 className="text-xl font-black text-white">🛠️ Mis planes de mantenimiento</h4>
                                     <p className="text-sm text-slate-400">
-                                        Agrega activos para construir el plan preventivo.
+                                        Aquí aparecerán los planes personalizados creados por {empresaActual.nombre}.
                                     </p>
                                 </div>
-                            )}
 
-                            {totalActivos > 0 && activosVencidos === 0 && activosCriticos7Dias === 0 && (
-                                <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
-                                    <p className="text-sm font-bold text-emerald-300">✅ Plan bajo control</p>
-                                    <p className="text-xs text-slate-400 mt-1">
-                                        No se detectan mantenimientos vencidos ni críticos para esta semana.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* RESUMEN POR TIPO */}
-                <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                    <div className="mb-6">
-                        <h4 className="text-2xl font-black text-white">🚛 Resumen por Tipo de Activo</h4>
-                        <p className="text-sm text-slate-400">
-                            Control del plan agrupado por familia de equipo.
-                        </p>
-                    </div>
-
-                    {Object.keys(resumenPorTipo).length > 0 ? (
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                            {Object.entries(resumenPorTipo).map(([tipo, resumen]) => (
-                                <div
-                                    key={tipo}
-                                    className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition-all hover:border-cyan-500/30 hover:bg-white/[0.06]"
+                                <button
+                                    type="button"
+                                    onClick={() => manejarAccionProxima(
+                                        'Crear plan propio',
+                                        'Más adelante este botón abrirá un formulario para crear planes con intervalo, tareas, repuestos y activos asignados.'
+                                    )}
+                                    className="rounded-2xl bg-gradient-to-r from-purple-500 to-cyan-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-purple-500/20 transition hover:scale-[1.02]"
                                 >
-                                    <div className="flex items-start justify-between mb-4">
-                                        <div>
-                                            <p className="text-3xl mb-2">{resumen.icono}</p>
-                                            <h5 className="text-lg font-black text-white">{tipo}</h5>
-                                            <p className="text-xs text-slate-500">{resumen.total} activos</p>
-                                        </div>
-
-                                        <div className="rounded-full bg-slate-950/70 px-3 py-1 text-sm font-bold text-cyan-400">
-                                            {resumen.total}
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-slate-400">Vencidos</span>
-                                            <span className="font-bold text-red-400">{resumen.vencidos}</span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-slate-400">Próximos</span>
-                                            <span className="font-bold text-amber-400">{resumen.proximos}</span>
-                                        </div>
-
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="text-slate-400">Controlados</span>
-                                            <span className="font-bold text-emerald-400">{resumen.controlados}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 p-10 text-center">
-                            <div className="text-5xl mb-4 opacity-50">🚛</div>
-                            <p className="text-slate-400">No hay activos para agrupar.</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* LISTADO DE PLANIFICACIÓN */}
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                    <div className="xl:col-span-2 rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <h4 className="text-2xl font-black text-white">📅 Calendario de Mantenimiento</h4>
-                                <p className="text-sm text-slate-400">
-                                    Activos ordenados por fecha de vencimiento.
-                                </p>
+                                    ➕ Nuevo plan
+                                </button>
                             </div>
 
-                            <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-sm font-bold text-cyan-300">
-                                {activosOrdenados.length} programados
-                            </span>
+                            <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-950/50 px-6 py-12 text-center">
+                                <div className="mb-4 text-6xl opacity-80">🧩</div>
+                                <h5 className="mb-2 text-xl font-black text-white">
+                                    Todavía no hay planes personalizados
+                                </h5>
+                                <p className="mx-auto max-w-2xl text-sm leading-relaxed text-slate-400">
+                                    Esta pantalla queda preparada para que después cada empresa cree sus propios planes,
+                                    copie plantillas FleetVision y los asigne a vehículos o equipos específicos.
+                                </p>
+
+                                <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+                                    {[
+                                        ['📋', 'Crear plan', 'Nombre, tipo, intervalo y unidad.'],
+                                        ['✅', 'Agregar tareas', 'Actividades técnicas y frecuencia.'],
+                                        ['🚚', 'Asignar activos', 'Vehículos o equipos vinculados.'],
+                                    ].map(([icono, titulo, detalle]) => (
+                                        <div key={titulo} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left">
+                                            <div className="mb-2 text-2xl">{icono}</div>
+                                            <p className="text-sm font-black text-white">{titulo}</p>
+                                            <p className="text-xs text-slate-500">{detalle}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
 
-                        {activosOrdenados.length > 0 ? (
-                            <div className="space-y-4">
-                                {activosOrdenados.map((activo) => (
-                                    <TarjetaActivoMantenimiento key={activo.id} activo={activo} />
+                        <div className="rounded-[28px] border border-cyan-500/20 bg-cyan-500/10 p-5">
+                            <h4 className="mb-3 text-lg font-black text-white">🗄️ Futuras tablas Supabase</h4>
+
+                            <div className="space-y-3 text-sm">
+                                {[
+                                    ['planes_mantenimiento', 'Plan creado por FleetVision o por una empresa.'],
+                                    ['tareas_plan_mantenimiento', 'Tareas internas de cada plan.'],
+                                    ['activos_planes_mantenimiento', 'Asignación del plan a cada activo.'],
+                                ].map(([tabla, detalle]) => (
+                                    <div key={tabla} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                                        <p className="font-black text-cyan-300">{tabla}</p>
+                                        <p className="text-xs text-slate-400">{detalle}</p>
+                                    </div>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-6 py-14 text-center">
-                                <div className="text-6xl mb-4 opacity-50">📅</div>
-                                <h4 className="text-xl font-black text-white mb-2">
-                                    No hay activos programados
-                                </h4>
+
+                            <p className="mt-4 text-xs leading-relaxed text-slate-400">
+                                No creamos estas tablas todavía para no romper nada. Primero dejamos clara la vista y después hacemos el SQL.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Vista: Activos y planificación */}
+                {vistaPlanMantenimiento === 'activos' && (
+                    <div className="rounded-[28px] border border-cyan-500/20 bg-gradient-to-br from-slate-950/95 via-blue-950/40 to-slate-950/95 p-5 shadow-xl shadow-black/20">
+                        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <h4 className="text-xl font-black text-white">🚚 Activos y planificación preventiva</h4>
                                 <p className="text-sm text-slate-400">
-                                    Cuando agregues activos, aparecerán aquí con su calendario preventivo.
+                                    Tabla guía para asociar activos actuales con un plan preventivo sugerido.
                                 </p>
                             </div>
-                        )}
-                    </div>
 
-                    <div className="space-y-6">
-                        <div className="rounded-3xl border border-amber-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                            <h4 className="text-xl font-black text-white mb-1">📌 Próximos 30 días</h4>
-                            <p className="text-sm text-slate-400 mb-5">
-                                Carga de trabajo estimada del mes.
-                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                <span className="rounded-full border border-cyan-500/25 bg-cyan-500/10 px-4 py-2 text-xs font-black text-cyan-300">
+                                    {activosFiltradosPlan.length} activos visibles
+                                </span>
 
-                            {mantenimientos30Dias.length > 0 ? (
-                                <div className="space-y-3">
-                                    {mantenimientos30Dias.slice(0, 6).map((activo) => {
-                                        const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-                                        const estado = obtenerEstadoPlan(dias);
+                                <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-4 py-2 text-xs font-black text-emerald-300">
+                                    {categoriasDetectadas || 0} tipos detectados
+                                </span>
+                            </div>
+                        </div>
+
+                        {activosFiltradosPlan.length > 0 ? (
+                            <>
+                                {/* Tabla escritorio */}
+                                <div className="hidden lg:block">
+                                    <div className="overflow-hidden rounded-3xl border border-white/10">
+                                        <div className="grid grid-cols-[1.35fr_0.85fr_0.75fr_1.25fr_0.85fr_0.9fr_0.9fr] gap-3 border-b border-white/10 bg-slate-900/80 px-4 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-400">
+                                            <div>Activo</div>
+                                            <div>Tipo</div>
+                                            <div>Patente</div>
+                                            <div>Plan sugerido</div>
+                                            <div>Medidor</div>
+                                            <div>Próximo</div>
+                                            <div>Estado</div>
+                                        </div>
+
+                                        <div className="divide-y divide-white/10">
+                                            {activosFiltradosPlan.map((activo) => {
+                                                const plan = obtenerPlanSugerido(activo);
+                                                const estado = obtenerEstadoProgramacion(activo);
+
+                                                return (
+                                                    <div
+                                                        key={activo.id}
+                                                        className="grid grid-cols-[1.35fr_0.85fr_0.75fr_1.25fr_0.85fr_0.9fr_0.9fr] gap-3 px-4 py-4 text-sm transition hover:bg-cyan-500/[0.04]"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <p className="truncate font-black text-white">
+                                                                {obtenerIconoActivo(activo.tipo)} {activo.nombre || `${activo.marca} ${activo.modelo}`}
+                                                            </p>
+                                                            <p className="truncate text-xs text-slate-500">
+                                                                {activo.marca || 'Sin marca'} · {activo.modelo || 'Sin modelo'} · {activo.año || 'Sin año'}
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="flex items-center">
+                                                            <span className="truncate text-slate-300">{activo.tipo || 'Sin tipo'}</span>
+                                                        </div>
+
+                                                        <div className="flex items-center">
+                                                            <span className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-black text-slate-300">
+                                                                {activo.patente || 'S/P'}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="min-w-0">
+                                                            <p className="truncate font-bold text-white">{plan.nombre}</p>
+                                                            <p className="truncate text-xs text-slate-500">{plan.intervalo}</p>
+                                                        </div>
+
+                                                        <div className="flex items-center">
+                                                            <span className="font-black text-cyan-300">
+                                                                {activo.kilometraje ? formatearNumero(activo.kilometraje) : '0'}
+                                                            </span>
+                                                        </div>
+
+                                                        <div>
+                                                            <p className="font-bold text-white">{obtenerProximoMedidor(activo)}</p>
+                                                            <p className="text-xs text-slate-500">{formatearFechaCorta(activo.próximoMantenimiento)}</p>
+                                                        </div>
+
+                                                        <div className="flex items-center">
+                                                            <span className={`rounded-full border px-3 py-1 text-xs font-black ${estado.clase}`}>
+                                                                {estado.texto}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Tarjetas móvil/tablet */}
+                                <div className="space-y-3 lg:hidden">
+                                    {activosFiltradosPlan.map((activo) => {
+                                        const plan = obtenerPlanSugerido(activo);
+                                        const estado = obtenerEstadoProgramacion(activo);
 
                                         return (
                                             <div
                                                 key={activo.id}
-                                                className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                                                className="rounded-3xl border border-white/10 bg-white/[0.03] p-4"
                                             >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className="text-sm font-bold text-white">
-                                                            {obtenerIconoActivo(activo.tipo)} {activo.nombre}
+                                                <div className="mb-4 flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-base font-black text-white">
+                                                            {obtenerIconoActivo(activo.tipo)} {activo.nombre || `${activo.marca} ${activo.modelo}`}
                                                         </p>
-
-                                                        <p className="text-xs text-slate-500 mt-1">
-                                                            {formatearFechaCorta(activo.próximoMantenimiento)}
+                                                        <p className="text-xs text-slate-500">
+                                                            {activo.marca || 'Sin marca'} · {activo.modelo || 'Sin modelo'} · {activo.patente || 'Sin patente'}
                                                         </p>
                                                     </div>
 
-                                                    <span className={`rounded-full border px-2 py-1 text-[10px] font-bold ${estado.clase}`}>
-                                                        {dias < 0 ? 'Vencido' : `${dias}d`}
+                                                    <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-black ${estado.clase}`}>
+                                                        {estado.texto}
                                                     </span>
                                                 </div>
+
+                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+                                                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Plan sugerido</p>
+                                                        <p className="mt-1 text-sm font-black text-white">{plan.nombre}</p>
+                                                        <p className="text-xs text-cyan-300">{plan.intervalo}</p>
+                                                    </div>
+
+                                                    <div className="rounded-2xl border border-white/10 bg-slate-950/50 p-3">
+                                                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Medidor / próximo</p>
+                                                        <p className="mt-1 text-sm font-black text-white">
+                                                            {activo.kilometraje ? formatearNumero(activo.kilometraje) : '0'} actual
+                                                        </p>
+                                                        <p className="text-xs text-cyan-300">{obtenerProximoMedidor(activo)}</p>
+                                                    </div>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => manejarAccionProxima(
+                                                        'Asignar plan a activo',
+                                                        `Después podrás asignar "${plan.nombre}" al activo ${activo.nombre || activo.patente || activo.modelo}.`
+                                                    )}
+                                                    className="mt-4 w-full rounded-2xl border border-cyan-500/25 bg-cyan-500/10 px-4 py-3 text-xs font-black text-cyan-300 transition hover:bg-cyan-500/20"
+                                                >
+                                                    Asignar plan próximamente
+                                                </button>
                                             </div>
                                         );
                                     })}
-
-                                    {mantenimientos30Dias.length > 6 && (
-                                        <p className="text-center text-xs text-slate-500">
-                                            +{mantenimientos30Dias.length - 6} mantenimientos adicionales
-                                        </p>
-                                    )}
                                 </div>
-                            ) : (
-                                <div className="rounded-2xl border border-dashed border-slate-700 p-8 text-center">
-                                    <div className="text-4xl mb-3 opacity-50">✅</div>
-                                    <p className="text-sm text-slate-400">
-                                        No hay mantenimientos urgentes dentro de los próximos 30 días.
-                                    </p>
-                                </div>
-                            )}
-                        </div>
+                            </>
+                        ) : (
+                            <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-950/50 px-6 py-14 text-center">
+                                <div className="mb-4 text-6xl opacity-60">🚚</div>
+                                <h5 className="mb-2 text-xl font-black text-white">
+                                    No hay activos para planificar
+                                </h5>
+                                <p className="mx-auto max-w-xl text-sm text-slate-400">
+                                    Cuando agregues vehículos o equipos en Gestión de Activos, aparecerán aquí para asignarles un plan preventivo.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {/* Modal detalle / gestión de plan */}
+                {planMantenimientoSeleccionado && (
+                    <div
+                        className={`fixed z-[9999] flex transition-all duration-300
+            top-[100px]
+            bottom-[48px]
+            right-[1px]
+            left-3
+            ${barraLateralContraída
+                                ? 'lg:left-[75px]'
+                                : 'lg:left-[290px]'
+                            }
+        `}
+                    >
+                        {/* Fondo del modal */}
+                        <div
+                            className="absolute inset-0 rounded-[28px] bg-slate-950/70 backdrop-blur-md"
+                            onClick={cerrarModuloPlanMantenimiento}
+                        />
 
-                        <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                            <h4 className="text-xl font-black text-white mb-1">🛠️ Matriz Preventiva</h4>
-                            <p className="text-sm text-slate-400 mb-5">
-                                Intervalos referenciales por familia.
-                            </p>
+                        {/* Ventana principal */}
+                        <div
+                            className={`relative z-10 h-full w-full overflow-y-auto border border-cyan-500/25
 
-                            <div className="space-y-3">
-                                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-slate-300">🚜 Maquinaria / Agrícola</span>
-                                        <span className="text-sm font-bold text-cyan-400">250 h</span>
+        [scrollbar-width:thin]
+        [scrollbar-color:rgba(34,211,238,0.65)_rgba(8,18,35,0.85)]
+
+        [&::-webkit-scrollbar]:w-2
+        [&::-webkit-scrollbar-track]:bg-[#081223]
+        [&::-webkit-scrollbar-thumb]:rounded-full
+        [&::-webkit-scrollbar-thumb]:bg-cyan-500/60
+        [&::-webkit-scrollbar-thumb:hover]:bg-cyan-400/80
+
+        bg-gradient-to-br from-slate-950 via-[#0c1528] to-slate-950
+        shadow-[0_0_60px_rgba(6,182,212,0.12)]
+
+        ${modoPlanMantenimiento === 'gestionar'
+                                    ? 'rounded-[24px]'
+                                    : 'mx-auto max-w-6xl rounded-[28px]'
+                                }
+    `}
+                        >
+
+                            {/* ================================================= */}
+                            {/* ENCABEZADO DEL MODAL                              */}
+                            {/* ================================================= */}
+                            <div className="sticky top-0 z-20 border-b border-white/10 bg-slate-950/95 px-5 py-4 backdrop-blur-xl">
+                                <div className="flex items-start justify-between gap-4">
+
+                                    <div className="flex min-w-0 items-center gap-4">
+
+                                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/10 text-2xl shadow-lg shadow-cyan-500/10">
+                                            {planMantenimientoSeleccionado.icono}
+                                        </div>
+
+                                        <div className="min-w-0">
+
+                                            <p className="text-[11px] font-black uppercase tracking-[0.20em] text-cyan-300">
+                                                {modoPlanMantenimiento === 'detalles'
+                                                    ? 'DETALLES DEL PLAN'
+                                                    : 'GESTIÓN DEL PLAN'}
+                                            </p>
+
+                                            <h3 className="truncate text-xl font-black text-white sm:text-2xl">
+                                                {planMantenimientoSeleccionado.nombre}
+                                            </h3>
+
+                                            <p className="text-xs text-slate-400 sm:text-sm">
+                                                {planMantenimientoSeleccionado.categoria}
+                                                {' · '}
+                                                Plantilla estándar FleetVision
+                                            </p>
+
+                                        </div>
                                     </div>
-                                </div>
 
-                                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-slate-300">🚚 Transporte / Camión</span>
-                                        <span className="text-sm font-bold text-cyan-400">10.000 km</span>
-                                    </div>
-                                </div>
+                                    <button
+                                        type="button"
+                                        onClick={cerrarModuloPlanMantenimiento}
+                                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-300 transition hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-300"
+                                    >
+                                        ✕
+                                    </button>
 
-                                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-slate-300">🚙 Vehículo liviano</span>
-                                        <span className="text-sm font-bold text-cyan-400">10.000 km</span>
-                                    </div>
-                                </div>
-
-                                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-slate-300">⚙️ Equipo general</span>
-                                        <span className="text-sm font-bold text-cyan-400">500 h</span>
-                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
 
-                {/* TABLA TÉCNICA */}
-                <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-6 backdrop-blur-lg shadow-xl shadow-black/20">
-                    <div className="mb-6">
-                        <h4 className="text-2xl font-black text-white">📋 Tabla Técnica del Plan</h4>
-                        <p className="text-sm text-slate-400">
-                            Vista administrativa para controlar fechas, medidores, intervalos, costos y prioridad.
-                        </p>
-                    </div>
 
-                    {activosOrdenados.length > 0 ? (
-                        <div className="overflow-x-auto">
-                            <table className="w-full min-w-[1100px]">
-                                <thead>
-                                    <tr className="border-b border-white/10">
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Activo</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Tipo</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Patente</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Fecha</th>
-                                        <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Estado</th>
-                                        <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Medidor</th>
-                                        <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Próximo</th>
-                                        <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Costo Ref.</th>
-                                    </tr>
-                                </thead>
+                            {/* ================================================= */}
+                            {/* VISTA DETALLES                                    */}
+                            {/* ================================================= */}
+                            {modoPlanMantenimiento === 'detalles' && (
 
-                                <tbody>
-                                    {activosOrdenados.map((activo) => {
-                                        const dias = obtenerDiasHastaMantenimiento(activo.próximoMantenimiento);
-                                        const estado = obtenerEstadoPlan(dias);
-                                        const medidor = obtenerProximoMedidor(activo);
-                                        const costo = obtenerCostoReferencial(activo);
+                                <div className="space-y-5 p-5">
 
-                                        return (
-                                            <tr
-                                                key={activo.id}
-                                                className="border-b border-white/5 transition-colors hover:bg-white/5"
-                                            >
-                                                <td className="px-4 py-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/10 text-xl">
-                                                            {obtenerIconoActivo(activo.tipo)}
-                                                        </div>
+                                    {/* ETIQUETAS */}
+                                    <div className="flex flex-wrap gap-2">
 
-                                                        <div>
-                                                            <p className="text-sm font-bold text-white">{activo.nombre}</p>
-                                                            <p className="text-xs text-slate-500">
-                                                                {activo.marca} · {activo.modelo} · {activo.año}
-                                                            </p>
-                                                        </div>
+                                        <span
+                                            className={`rounded-full border px-3 py-1 text-xs font-black ${planMantenimientoSeleccionado.clase}`}
+                                        >
+                                            Plantilla estándar
+                                        </span>
+
+                                        <span className="rounded-full border border-cyan-500/25 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-300">
+                                            {planMantenimientoSeleccionado.unidad}
+                                        </span>
+
+                                        <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300">
+                                            Preventivo
+                                        </span>
+
+                                    </div>
+
+
+                                    {/* INFORMACIÓN GENERAL */}
+                                    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+
+                                        <div className="mb-5">
+
+                                            <p className="mb-1 text-[11px] font-black uppercase tracking-[0.18em] text-cyan-400">
+                                                Información general
+                                            </p>
+
+                                            <h4 className="text-xl font-black text-white">
+                                                Descripción técnica
+                                            </h4>
+
+                                            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
+                                                {planMantenimientoSeleccionado.descripcion}
+                                            </p>
+
+                                        </div>
+
+
+                                        {/* RESUMEN */}
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
+                                            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                                                    Categoría
+                                                </p>
+
+                                                <p className="mt-2 font-black text-white">
+                                                    {planMantenimientoSeleccionado.categoria}
+                                                </p>
+                                            </div>
+
+
+                                            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                                                    Intervalo
+                                                </p>
+
+                                                <p className="mt-2 font-black text-white">
+                                                    {planMantenimientoSeleccionado.intervalo}
+                                                </p>
+                                            </div>
+
+
+                                            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                                                    Unidad de control
+                                                </p>
+
+                                                <p className="mt-2 font-black text-cyan-300">
+                                                    {planMantenimientoSeleccionado.unidad}
+                                                </p>
+                                            </div>
+
+
+                                            <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+                                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+                                                    Tareas base
+                                                </p>
+
+                                                <p className="mt-2 font-black text-emerald-300">
+                                                    {planMantenimientoSeleccionado.tareas.length} tareas
+                                                </p>
+                                            </div>
+
+                                        </div>
+
+                                    </div>
+
+
+                                    {/* TAREAS DEL PLAN */}
+                                    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+
+                                        <div className="mb-4 flex items-center justify-between gap-3">
+
+                                            <div>
+                                                <h4 className="text-lg font-black text-white">
+                                                    ✅ Tareas base del plan
+                                                </h4>
+
+                                                <p className="text-sm text-slate-400">
+                                                    Actividades preventivas incluidas en esta plantilla.
+                                                </p>
+                                            </div>
+
+                                            <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs font-black text-emerald-300">
+                                                {planMantenimientoSeleccionado.tareas.length} tareas
+                                            </span>
+
+                                        </div>
+
+
+                                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+
+                                            {planMantenimientoSeleccionado.tareas.map(
+                                                (tarea, index) => (
+
+                                                    <div
+                                                        key={`${tarea}-${index}`}
+                                                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3"
+                                                    >
+
+                                                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-xs font-black text-emerald-300">
+                                                            {index + 1}
+                                                        </span>
+
+                                                        <p className="text-sm font-semibold text-slate-300">
+                                                            {tarea}
+                                                        </p>
+
                                                     </div>
-                                                </td>
 
-                                                <td className="px-4 py-4 text-sm text-slate-300">
-                                                    {activo.tipo}
-                                                </td>
+                                                )
+                                            )}
 
-                                                <td className="px-4 py-4 font-mono text-sm text-cyan-400">
-                                                    {activo.patente}
-                                                </td>
+                                        </div>
 
-                                                <td className="px-4 py-4">
-                                                    <p className="text-sm text-white">
-                                                        {formatearFechaCorta(activo.próximoMantenimiento)}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500">
-                                                        {formatearFechaLarga(activo.próximoMantenimiento)}
-                                                    </p>
-                                                </td>
+                                    </div>
 
-                                                <td className="px-4 py-4">
-                                                    <span className={`rounded-full border px-3 py-1 text-xs font-bold ${estado.clase}`}>
-                                                        {estado.icono} {estado.texto}
-                                                    </span>
-                                                </td>
 
-                                                <td className="px-4 py-4 text-right text-sm text-slate-300">
-                                                    {medidor.medidorActual.toLocaleString('es-CL')} {medidor.unidad}
-                                                </td>
+                                    {/* BOTÓN CERRAR */}
+                                    <div className="flex justify-end">
 
-                                                <td className="px-4 py-4 text-right text-sm font-bold text-cyan-400">
-                                                    {medidor.proximo.toLocaleString('es-CL')} {medidor.unidad}
-                                                </td>
+                                        <button
+                                            type="button"
+                                            onClick={cerrarModuloPlanMantenimiento}
+                                            className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm font-bold text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+                                        >
+                                            Cerrar
+                                        </button>
 
-                                                <td className="px-4 py-4 text-right text-sm font-bold text-emerald-400">
-                                                    ${costo.toLocaleString('es-CL')}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                                    </div>
+
+                                </div>
+
+                            )}
+
+
+                            {/* ================================================= */}
+                            {/* VISTA GESTIONAR - TIPO EXCEL / PLANILLA           */}
+                            {/* ================================================= */}
+                            {modoPlanMantenimiento === 'gestionar' && (
+
+                                <div className="space-y-4 p-5">
+
+                                    {/* BARRA SUPERIOR */}
+                                    <div className="flex flex-col gap-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/[0.06] p-4 lg:flex-row lg:items-center lg:justify-between">
+
+                                        <div>
+
+                                            <div className="flex flex-wrap items-center gap-2">
+
+                                                <span
+                                                    className={`rounded-full border px-3 py-1 text-xs font-black ${planMantenimientoSeleccionado.clase}`}
+                                                >
+                                                    Plantilla estándar
+                                                </span>
+
+                                                <span className="rounded-full border border-cyan-500/25 bg-cyan-500/10 px-3 py-1 text-xs font-black text-cyan-300">
+                                                    {planMantenimientoSeleccionado.categoria}
+                                                </span>
+
+                                            </div>
+
+                                            <h4 className="mt-3 text-lg font-black text-white">
+                                                📊 Planilla de mantenimiento
+                                            </h4>
+
+                                            <p className="mt-1 text-sm text-slate-400">
+                                                Vista operativa de las actividades que componen el plan.
+                                            </p>
+
+                                        </div>
+
+
+                                        <div className="flex flex-wrap gap-2">
+
+                                            {/* EXPORTAR EXCEL */}
+                                            <button
+                                                type="button"
+                                                onClick={exportarPlanExcel}
+                                                className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-black text-emerald-300 transition hover:bg-emerald-500/20"
+                                            >
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2"
+                                                    className="h-4 w-4"
+                                                >
+                                                    <path d="M12 3v12" />
+                                                    <path d="m7 10 5 5 5-5" />
+                                                    <path d="M5 21h14" />
+                                                </svg>
+
+                                                Exportar Excel
+                                            </button>
+
+                                            {/* NUEVA TAREA */}
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    manejarAccionProxima(
+                                                        'Agregar tarea',
+                                                        'Aquí podremos agregar una nueva actividad al plan personalizado.'
+                                                    )
+                                                }
+                                                className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-2 text-xs font-black text-cyan-300 transition hover:bg-cyan-500/20"
+                                            >
+                                                ＋ Nueva tarea
+                                            </button>
+
+                                            {/* CREAR COPIA EDITABLE */}
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    manejarAccionProxima(
+                                                        'Crear plan personalizado',
+                                                        `Aquí se creará una copia editable de "${planMantenimientoSeleccionado.nombre}".`
+                                                    )
+                                                }
+                                                className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-4 py-2 text-xs font-black text-white shadow-lg shadow-cyan-500/20 transition hover:scale-[1.02]"
+                                            >
+                                                Crear copia editable
+                                            </button>
+
+                                        </div>
+
+                                    </div>
+
+
+                                    {/* RESUMEN DEL PLAN */}
+                                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+
+                                        <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">
+                                                Intervalo
+                                            </p>
+
+                                            <p className="mt-1 text-sm font-black text-white">
+                                                {planMantenimientoSeleccionado.intervalo}
+                                            </p>
+                                        </div>
+
+
+                                        <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">
+                                                Unidad
+                                            </p>
+
+                                            <p className="mt-1 text-sm font-black text-cyan-300">
+                                                {planMantenimientoSeleccionado.unidad}
+                                            </p>
+                                        </div>
+
+
+                                        <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">
+                                                Actividades
+                                            </p>
+
+                                            <p className="mt-1 text-sm font-black text-emerald-300">
+                                                {planMantenimientoSeleccionado.tareas.length}
+                                            </p>
+                                        </div>
+
+
+                                        <div className="rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">
+                                                Tipo
+                                            </p>
+
+                                            <p className="mt-1 text-sm font-black text-white">
+                                                Preventivo
+                                            </p>
+                                        </div>
+
+                                    </div>
+
+
+                                    {/* ================================================= */}
+                                    {/* PLANILLA TIPO EXCEL                                */}
+                                    {/* ================================================= */}
+                                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70 shadow-xl shadow-black/20">
+
+                                        {/* BARRA DE PLANILLA */}
+                                        <div className="flex items-center justify-between border-b border-white/10 bg-slate-900/90 px-4 py-3">
+
+                                            <div className="flex items-center gap-2">
+
+                                                <div className="h-3 w-3 rounded-full bg-emerald-400" />
+
+                                                <p className="text-xs font-black uppercase tracking-[0.15em] text-slate-300">
+                                                    Actividades del plan
+                                                </p>
+
+                                            </div>
+
+                                            <p className="text-xs text-slate-500">
+                                                {planMantenimientoSeleccionado.tareas.length} filas
+                                            </p>
+
+                                        </div>
+
+
+                                        <div className="overflow-x-auto">
+
+                                            <table className="min-w-[1180px] w-full border-collapse text-left text-sm">
+
+                                                {/* CABECERA */}
+                                                <thead>
+
+                                                    <tr className="border-b border-white/10 bg-slate-900">
+
+                                                        <th className="w-[60px] border-r border-white/10 px-3 py-3 text-center text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                                            N°
+                                                        </th>
+
+                                                        <th className="min-w-[280px] border-r border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Actividad de mantenimiento
+                                                        </th>
+
+                                                        <th className="min-w-[170px] border-r border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Intervalo
+                                                        </th>
+
+                                                        <th className="min-w-[150px] border-r border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Unidad
+                                                        </th>
+
+                                                        <th className="min-w-[120px] border-r border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Tiempo est.
+                                                        </th>
+
+                                                        <th className="min-w-[140px] border-r border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Especialidad
+                                                        </th>
+
+                                                        <th className="min-w-[120px] border-r border-white/10 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Prioridad
+                                                        </th>
+
+                                                        <th className="min-w-[150px] px-4 py-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                                            Observaciones
+                                                        </th>
+
+                                                    </tr>
+
+                                                </thead>
+
+
+                                                {/* FILAS */}
+                                                <tbody>
+
+                                                    {planMantenimientoSeleccionado.tareas.map(
+                                                        (tarea, index) => (
+
+                                                            <tr
+                                                                key={`${planMantenimientoSeleccionado.id}-${index}`}
+                                                                className="border-b border-white/[0.06] transition hover:bg-cyan-500/[0.04]"
+                                                            >
+
+                                                                <td className="border-r border-white/[0.06] px-3 py-3 text-center font-black text-cyan-300">
+                                                                    {index + 1}
+                                                                </td>
+
+
+                                                                <td className="border-r border-white/[0.06] px-4 py-3 font-semibold text-white">
+                                                                    {tarea}
+                                                                </td>
+
+
+                                                                <td className="border-r border-white/[0.06] px-4 py-3 text-slate-300">
+                                                                    {planMantenimientoSeleccionado.intervalo}
+                                                                </td>
+
+
+                                                                <td className="border-r border-white/[0.06] px-4 py-3 font-semibold text-cyan-300">
+                                                                    {planMantenimientoSeleccionado.unidad}
+                                                                </td>
+
+
+                                                                <td className="border-r border-white/[0.06] px-4 py-3 text-slate-500">
+                                                                    —
+                                                                </td>
+
+
+                                                                <td className="border-r border-white/[0.06] px-4 py-3 text-slate-500">
+                                                                    —
+                                                                </td>
+
+
+                                                                <td className="border-r border-white/[0.06] px-4 py-3 text-slate-500">
+                                                                    —
+                                                                </td>
+
+
+                                                                <td className="px-4 py-3 text-slate-500">
+                                                                    —
+                                                                </td>
+
+                                                            </tr>
+
+                                                        )
+                                                    )}
+
+                                                </tbody>
+
+                                            </table>
+
+                                        </div>
+
+                                    </div>
+
+
+                                    {/* AVISO */}
+                                    <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3">
+
+                                        <span className="text-lg">
+                                            💡
+                                        </span>
+
+                                        <div>
+                                            <p className="text-xs font-black text-amber-200">
+                                                Campos técnicos pendientes
+                                            </p>
+
+                                            <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                                                Los campos marcados con “—” aún no existen en la estructura actual del plan.
+                                                No estamos inventando información: después podremos agregar tiempo,
+                                                especialidad, prioridad y observaciones cuando construyamos el plan editable.
+                                            </p>
+                                        </div>
+
+                                    </div>
+
+
+                                    {/* PIE */}
+                                    <div className="flex justify-end">
+
+                                        <button
+                                            type="button"
+                                            onClick={cerrarModuloPlanMantenimiento}
+                                            className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm font-bold text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+                                        >
+                                            Cerrar
+                                        </button>
+
+                                    </div>
+
+                                </div>
+
+                            )}
+
                         </div>
-                    ) : (
-                        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-6 py-14 text-center">
-                            <div className="text-6xl mb-4 opacity-50">📋</div>
-                            <h4 className="text-xl font-black text-white mb-2">
-                                Sin datos técnicos disponibles
-                            </h4>
-                            <p className="text-sm text-slate-400">
-                                Agrega activos para construir la tabla técnica del plan de mantenimiento.
-                            </p>
-                        </div>
-                    )}
-                </div>
+
+                    </div>
+                )}
             </div>
         );
     };
@@ -14618,8 +15177,8 @@ export default function DashboardCompleto() {
                 type="button"
                 onClick={onClick}
                 className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[10px] font-black transition-all ${activo
-                        ? 'border border-cyan-400/40 bg-cyan-500/15 text-cyan-200 shadow-lg shadow-cyan-500/10'
-                        : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                    ? 'border border-cyan-400/40 bg-cyan-500/15 text-cyan-200 shadow-lg shadow-cyan-500/10'
+                    : 'text-slate-400 hover:bg-white/5 hover:text-white'
                     }`}
             >
                 <span className="text-lg leading-none">{icono}</span>
@@ -14654,8 +15213,8 @@ export default function DashboardCompleto() {
                                         type="button"
                                         onClick={() => irASeccionMovil(seccion.id)}
                                         className={`rounded-2xl border p-3 text-left transition-all ${secciónActiva === seccion.id
-                                                ? 'border-cyan-400/50 bg-cyan-500/15 text-white'
-                                                : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-cyan-400/30 hover:bg-white/[0.07]'
+                                            ? 'border-cyan-400/50 bg-cyan-500/15 text-white'
+                                            : 'border-white/10 bg-white/[0.04] text-slate-300 hover:border-cyan-400/30 hover:bg-white/[0.07]'
                                             }`}
                                     >
                                         <div className="text-xl">{seccion.icono}</div>
@@ -14805,8 +15364,8 @@ export default function DashboardCompleto() {
                                                         setErrorChat(null);
                                                     }}
                                                     className={`min-w-[170px] rounded-2xl border px-2.5 py-2 text-left transition-all lg:mb-2 lg:min-w-0 lg:w-full ${seleccionado
-                                                            ? 'border-cyan-400/60 bg-cyan-500/15 shadow-lg shadow-cyan-500/10'
-                                                            : 'border-white/10 bg-white/[0.04] hover:border-cyan-400/30 hover:bg-white/[0.07]'
+                                                        ? 'border-cyan-400/60 bg-cyan-500/15 shadow-lg shadow-cyan-500/10'
+                                                        : 'border-white/10 bg-white/[0.04] hover:border-cyan-400/30 hover:bg-white/[0.07]'
                                                         }`}
                                                 >
                                                     <div className="flex items-center gap-2.5">
@@ -14884,8 +15443,8 @@ export default function DashboardCompleto() {
                                                 >
                                                     <div
                                                         className={`max-w-[82%] rounded-2xl px-3 py-2 shadow-lg lg:max-w-[78%] ${esMio
-                                                                ? 'rounded-br-md border border-cyan-400/25 bg-cyan-600/25 text-cyan-50 shadow-cyan-500/10'
-                                                                : 'rounded-bl-md border border-white/10 bg-white/[0.075] text-slate-100 shadow-black/20'
+                                                            ? 'rounded-br-md border border-cyan-400/25 bg-cyan-600/25 text-cyan-50 shadow-cyan-500/10'
+                                                            : 'rounded-bl-md border border-white/10 bg-white/[0.075] text-slate-100 shadow-black/20'
                                                             }`}
                                                     >
                                                         <div className="mb-0.5 flex items-center justify-between gap-3">
@@ -15214,11 +15773,11 @@ export default function DashboardCompleto() {
             {/* ============================================================= */}
             <div
                 className={`relative z-10 pb-28 transition-all duration-700 ease-in-out lg:pb-16 ${barraLateralContraída ? 'lg:pl-20' : 'lg:pl-64'
-                    } ${secciónActiva === 'activos' ? 'px-3 py-4 sm:px-4 lg:px-10 lg:py-5' : 'px-3 py-5 sm:px-4 lg:px-6 lg:py-8'
+                    } ${['activos', 'mantenimiento'].includes(secciónActiva) ? 'px-3 py-4 sm:px-4 lg:px-10 lg:py-5' : 'px-3 py-5 sm:px-4 lg:px-6 lg:py-8'
                     }`}
                 style={{ zoom: "var(--zoom-main)" } as CSSProperties}
             >
-                <div className={secciónActiva === 'activos' ? 'mx-auto w-full max-w-[1400px]' : 'mx-auto max-w-7xl'}>
+                <div className={['activos', 'mantenimiento'].includes(secciónActiva) ? 'mx-auto w-full max-w-[1400px]' : 'mx-auto max-w-7xl'}>
                     {secciónActiva === 'dashboard' && (
                         <div className="mb-5 lg:mb-8">
                             <h1 className={`mb-2 text-2xl font-bold leading-tight sm:text-3xl ${modoOscuro ? 'text-white' : 'text-gray-800'}`}>
